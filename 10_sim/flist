@@ -1,0 +1,24 @@
++define+DV
+
+-I./../00_src/
+-I./../01_bench/
+
+# source
+./../00_src/eq_pkg.sv
+./../00_src/prbs_gen.sv
+./../00_src/awgn_gen.sv
+./../00_src/channel_model.sv
+./../00_src/ffe.sv
+./../00_src/dfe.sv
+./../00_src/bert_checker.sv
+./../00_src/eq_top.sv
+
+# scoreboard
+
+# driver
+
+# top testbench
+./../01_bench/TOP/tbench.sv
+
+./conf.vlt
+-top tbench
