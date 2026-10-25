@@ -1,4 +1,4 @@
-PAM-4 BLOCK DIAGRAM DESIGN FLOW - DRAFT 1.1 - SIGNED 4-BIT TX SYMBOL - SINGLE-PRBS GRAY-SELECTION TX
+PAM-4 BLOCK DIAGRAM DESIGN FLOW - DRAFT 1.2 - SIGNED 4-BIT TX SYMBOL - SINGLE-PRBS GRAY-SELECTION TX
 Main sections: 1) TX, 2) CHANNEL, 3) RX. Current scope: TX, CHANNEL external widths, and an RX submodule / fixed-point proposal.
 Purpose: an editable design proposal; refine block boundaries and interfaces step by step.
 Only this TXT design document is updated. Existing RTL and the Python model are unchanged.
@@ -399,11 +399,11 @@ Coefficient config pins and both bypass config pins are sampled only on i_cfg_lo
 
 3.8 WHERE TO COMPARE / MEASURE
 - C1 (inside RX): compare selected desired amplitude d_des[n] against pre-slicer y[n]. This produces LMS error, not BER.
-- C2 (external BERT): compare o_bits against the corresponding delayed TX Gray reference; compare o_sym against the same TX symbol for SER.
+- C2 (Top-level BER logic): compare o_bits against the corresponding delayed TX Gray reference. Top counts differing bits and total compared bits; see TOP_BER.md.
 - Delay TX references by the implemented TX-to-decision path latency and mode-selected algorithmic D (1 for default FFE-active modes, 0 for FFE-bypassed modes); use an explicit symbol-index schedule to avoid double-counting delays.
 - Begin BER/SER counting after training and pipeline fill. Keep the TX reference delay line running continuously so the first measured decision is aligned.
 - Optional C0 baseline (external monitor): slice the raw Channel sample and compare against its matching TX symbol with algorithmic D=0, on the same retained TX-symbol interval as C2.
-- BERT counter widths, reporting, optional raw slicer and frozen-tap/Polyak experiments are outside the RX datapath table and will be specified later.
+- Inline Top BER monitoring uses configurable counters (default 64 bits), parameter-based latency and measurement enable/clear. Optional raw slicer and frozen-tap/Polyak experiments remain outside the RX datapath table.
 
 3.9 COEFFICIENT CONFIGURATION / LOAD CONTRACT
 - Config taps are four separate signed16 Q4.12 inputs. Stored integer equals round(real_coefficient*4096); the complete format range is [-8,7.999755859375].
@@ -463,6 +463,20 @@ The two input flags are latched together with the four coefficient inputs on i_c
 - Freeze config/mode-load timing, balanced bypass pipelines, mode-dependent reference alignment and transition measurement policy alongside arithmetic rules before RTL.
 - Later validate the selected Q4.4 Channel boundary and PRBS stream against an agreed numerical reference; existing model results use their original formats/source.
 
+
+4. TOP-LEVEL BER MONITOR
+- Implement BER directly in Top.sv, without a separate BERT module.
+- Inputs: i_ber_en and i_ber_clear. Outputs: o_ber_error_bits, o_ber_total_bits, o_ber_ready and o_ber_latency.
+- Compare the selected RX recovered Gray bits against delayed TX Gray reference bits. Count 0/1/2 bit errors and add 2 total bits per eligible symbol.
+- Physical latency = CHANNEL_LATENCY + FFE_LATENCY + DFE_LATENCY + SLICER_LATENCY.
+- Reference delay adds FFE_SYMBOL_DELAY when FFE is active; FFE bypass uses zero algorithmic symbol delay.
+- Defaults: 3-clock TX-output-to-RX reference delay with FFE active, 2 clocks with FFE bypassed. TX_LATENCY qualifies startup and is not counted twice in the TX-output reference delay.
+- RX_STARTUP_CYCLES defaults to TX_LATENCY+CHANNEL_LATENCY; TX_REF_DELAY_CYCLES defaults to CHANNEL_LATENCY+FFE_LATENCY+DFE_LATENCY.
+- Default BER_SKIP_TRAINING=1 excludes initial training decisions; BER_COUNTER_WIDTH=64. Counters stop together before overflow.
+- Reset or RX/Channel config loads clear the counters. Noise/adaptation enable changes also clear the measurement and trigger a settling guard. Explicit BER clear does not restart training or reset the data stream.
+- Select FFE-only measurement by bypassing DFE; select after-DFE measurement with DFE active. One monitor follows the selected RX path.
+- Detailed edge/latency, counter and verification contracts: 99_doc/TOP_BER.md.
+
 SOURCES / DECISIONS
 - User-selected architecture: one PRBS -> MUX selecting a fixed Gray code -> PAM-4 mapper.
 - README.md: Gray mapping. User-selected TX interface: signed 4-bit integer amplitude, replacing Q4.12 at the TX boundary in this implementation proposal.
@@ -473,3 +487,4 @@ SOURCES / DECISIONS
 - User-requested RX coefficient config: three FFE and one DFE signed16 F12 inputs, atomic config load, and adaptation enable for fixed/adaptive operation.
 - User-requested independent FFE/DFE bypass: two active-high config bits, latched on i_cfg_load; four modes with per-branch LMS hold and mode-aware reference alignment.
 - User-requested Channel runtime controls: i_noise_en, unsigned8 integer-dB i_cfg_snr_db and separate i_cfg_noise_load; reset default DEFAULT_SNR_DB=20.
+- User-selected BER alignment: calculate from declared module pipeline parameters, not correlation-based delay acquisition.

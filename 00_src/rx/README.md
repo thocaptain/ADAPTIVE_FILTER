@@ -1,6 +1,6 @@
 # RX
 
-Source: [BLOCK_DIAGRAM_DESIGN_FLOW.txt](../../99_doc/BLOCK_DIAGRAM_DESIGN_FLOW.txt), draft 1.0.
+Source: [BLOCK_DIAGRAM_DESIGN_FLOW.txt](../../99_doc/BLOCK_DIAGRAM_DESIGN_FLOW.txt), draft 1.2.
 
 [TX](../tx/README.md) | [Channel](../channel/README.md) | [RX](../rx/README.md) | [Top.sv](../Top.sv)
 
@@ -146,11 +146,11 @@ Coefficient config pins and both bypass config pins are sampled only on i_cfg_lo
 ## 3.8 WHERE TO COMPARE / MEASURE
 
 - C1 (inside RX): compare selected desired amplitude d_des[n] against pre-slicer y[n]. This produces LMS error, not BER.
-- C2 (external BERT): compare o_bits against the corresponding delayed TX Gray reference; compare o_sym against the same TX symbol for SER.
+- C2 (Top-level BER logic): compare o_bits against the corresponding delayed TX Gray reference. The Top counts differing bits and total compared bits; see [TOP_BER.md](../../99_doc/TOP_BER.md).
 - Delay TX references by the implemented TX-to-decision path latency and mode-selected algorithmic D (1 for default FFE-active modes, 0 for FFE-bypassed modes); use an explicit symbol-index schedule to avoid double-counting delays.
 - Begin BER/SER counting after training and pipeline fill. Keep the TX reference delay line running continuously so the first measured decision is aligned.
 - Optional C0 baseline (external monitor): slice the raw Channel sample and compare against its matching TX symbol with algorithmic D=0, on the same retained TX-symbol interval as C2.
-- BERT counter widths, reporting, optional raw slicer and frozen-tap/Polyak experiments are outside the RX datapath table and will be specified later.
+- The inline Top BER monitor has configurable counters (default 64 bits), latency parameters and measurement enable/clear. Optional raw slicer and frozen-tap/Polyak experiments remain outside the RX datapath table.
 
 ## 3.9 COEFFICIENT CONFIGURATION / LOAD CONTRACT
 
