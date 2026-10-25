@@ -5,6 +5,8 @@ PROJECT_DIR  := $(abspath $(SIM_DIR)/..)
 MODULE       ?= tx
 SEED         ?= 1
 JOBS         ?= 2
+NOISE_EN     ?= 1
+SNR_DB       ?= 20
 VERILATOR    ?= verilator
 GTKWAVE      ?= gtkwave
 TOP          := tb_top
@@ -27,20 +29,31 @@ FLAGS        += -O3 --compiler gcc -CFLAGS "-std=gnu++17"
 FLAGS        += -x-initial unique -x-assign unique
 LFLAGS       := --lint-only --sv --top-module $(TOP)
 RFLAGS       := +verilator+seed+$(SEED)
+ifeq ($(MODULE),channel)
+RFLAGS       += +noise_en=$(NOISE_EN) +snr_db=$(SNR_DB)
+endif
 
 .DEFAULT_GOAL := help
-.PHONY: help check list lint sim run wave clean tx rx channel
+.PHONY: help check-config check list lint sim run wave clean tx rx channel
 
 help:
 	@printf '%s\n' \
 	  'make lint MODULE=tx|rx|channel' \
 	  'make sim  MODULE=tx|rx|channel  # Build only' \
 	  'make run  MODULE=tx|rx|channel  # Build and run' \
+	  'make run MODULE=channel NOISE_EN=1 SNR_DB=25' \
 	  'make wave MODULE=tx|rx|channel' \
 	  'make clean MODULE=tx|rx|channel' \
 	  'make tx | make rx | make channel  # Build and run one module'
 
-check:
+check-config:
+ifeq ($(MODULE),channel)
+	@case "$(NOISE_EN)" in 0|1) ;; *) printf 'NOISE_EN must be 0 or 1.\n' >&2; exit 1 ;; esac
+	@case "$(SNR_DB)" in ''|*[!0-9]*) printf 'SNR_DB must be an integer in 0..255.\n' >&2; exit 1 ;; esac
+	@test "$(SNR_DB)" -le 255 || { printf 'SNR_DB must be an integer in 0..255.\n' >&2; exit 1; }
+endif
+
+check: check-config
 	@test -f "$(FLIST)" || { printf 'Missing file list: %s\n' "$(FLIST)" >&2; exit 1; }
 	@test -f "$(TB)" || { printf 'Missing testbench: %s\n' "$(TB)" >&2; exit 1; }
 	@test -f "$(CPP)" || { printf 'Missing C++ driver: %s\n' "$(CPP)" >&2; exit 1; }

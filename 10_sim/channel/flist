@@ -9,5 +9,7 @@
 # Add RTL packages and dependencies here, before the module wrapper.
 ../00_src/channel/channel_top.sv
 
+# Runtime pins: i_noise_en, i_cfg_snr_db[7:0], i_cfg_noise_load.
+# Driver plusargs: +noise_en=0|1 +snr_db=0..255.
 # Testbench
 ../01_bench/channel/tb_top.sv

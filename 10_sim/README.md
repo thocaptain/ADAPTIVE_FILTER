@@ -52,6 +52,24 @@ Paths in this table are relative to the project root. Paths inside each `flist` 
 
 The Makefile runs `verilator --cc --exe`, then builds the generated code with `make`. Clock and reset are driven by C++. Waveforms use VCD to match the current drivers.
 
+## Channel noise configuration
+
+```bash
+make run MODULE=channel NOISE_EN=1 SNR_DB=25
+make run MODULE=channel NOISE_EN=0 SNR_DB=20
+# Shortcut
+make channel NOISE_EN=1 SNR_DB=15
+```
+
+| Option | Default | Driver pin / meaning |
+|---|---|---|
+| `NOISE_EN` | `1` | `i_noise_en`: 0 disables noise addition, 1 enables it |
+| `SNR_DB` | `20` | `i_cfg_snr_db[7:0]`: unsigned integer dB, encoding 0..255 |
+
+These options are passed to the Channel executable as `+noise_en` and `+snr_db`. The driver keeps noise disabled during the 10 reset clocks, pulses `i_cfg_noise_load` for one clock after reset, then applies `NOISE_EN`. They do not change TX/RX simulation arguments or the Channel reset parameter `DEFAULT_SNR_DB`.
+
+The Makefile and driver validate the encoding range; supported SNR values and dB-to-gain conversion still belong to the Channel RTL implementation. These inputs currently configure the bench stimulus, without a functional noise checker.
+
 ## Lint, waveforms, and cleanup
 
 ```bash
