@@ -1,8 +1,14 @@
 # RX
 
-Source: [BLOCK_DIAGRAM_DESIGN_FLOW.txt](../../99_doc/BLOCK_DIAGRAM_DESIGN_FLOW.txt), draft 1.2.
+Source: [BLOCK_DIAGRAM_DESIGN_FLOW.txt](../../99_doc/BLOCK_DIAGRAM_DESIGN_FLOW.txt), draft 1.3.
 
 [TX](../tx/README.md) | [Channel](../channel/README.md) | [RX](../rx/README.md) | [Top.sv](../Top.sv)
+
+## Block interface
+
+`rx_top` must expose `parameter integer NUMBER_SYMBOL=1`. Use `[NUMBER_SYMBOL-1:0][7:0]` for `i_r`, `[NUMBER_SYMBOL-1:0][3:0]` for `i_tx_ref`/`o_sym`, `[NUMBER_SYMBOL-1:0][1:0]` for `o_bits`, and `[NUMBER_SYMBOL-1:0][15:0]` for `o_y`. Coefficient/configuration ports remain shared scalars. The tables below describe one lane (`NUMBER_SYMBOL=1` baseline).
+
+Lane `[0]` is earliest and lane `[NUMBER_SYMBOL-1]` latest in a continuous symbol stream. `TRAIN_LEN` remains a number of symbols, so training may end within a block. Clock latency and algorithmic symbol delay are separate units. The child implementation must preserve the agreed Channel/FFE/DFE/LMS state schedule across lanes and block boundaries. Top now forwards NUMBER_SYMBOL and its BER monitor supports complete blocks plus per-lane startup/training qualification; the parallel DSP child RTL is still supplied separately by the team. See [TOP_BER.md](../../99_doc/TOP_BER.md).
 
 ## Overview
 

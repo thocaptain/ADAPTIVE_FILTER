@@ -1,4 +1,4 @@
-PAM-4 BLOCK DIAGRAM DESIGN FLOW - DRAFT 1.2 - SIGNED 4-BIT TX SYMBOL - SINGLE-PRBS GRAY-SELECTION TX
+PAM-4 BLOCK DIAGRAM DESIGN FLOW - DRAFT 1.3 - SIGNED 4-BIT TX SYMBOL - SINGLE-PRBS GRAY-SELECTION TX
 Main sections: 1) TX, 2) CHANNEL, 3) RX. Current scope: TX, CHANNEL external widths, and an RX submodule / fixed-point proposal.
 Purpose: an editable design proposal; refine block boundaries and interfaces step by step.
 Only this TXT design document is updated. Existing RTL and the Python model are unchanged.
@@ -469,13 +469,14 @@ The two input flags are latched together with the four coefficient inputs on i_c
 - Inputs: i_ber_en and i_ber_clear. Outputs: o_ber_error_bits, o_ber_total_bits, o_ber_ready and o_ber_latency.
 - Compare the selected RX recovered Gray bits against delayed TX Gray reference bits. Count 0/1/2 bit errors and add 2 total bits per eligible symbol.
 - Physical latency = CHANNEL_LATENCY + FFE_LATENCY + DFE_LATENCY + SLICER_LATENCY.
-- Reference delay adds FFE_SYMBOL_DELAY when FFE is active; FFE bypass uses zero algorithmic symbol delay.
-- Defaults: 3-clock TX-output-to-RX reference delay with FFE active, 2 clocks with FFE bypassed. TX_LATENCY qualifies startup and is not counted twice in the TX-output reference delay.
+- Physical latency is in clocks; FFE_SYMBOL_DELAY is in symbols. For NUMBER_SYMBOL=N, align each RX lane k to chronological TX symbol (t-P)*N+k-D, including references that cross block boundaries. FFE bypass sets D=0.
+- o_ber_latency reports P+ceil(D/N), the maximum history-block age; individual lanes can use newer history. For N=1/defaults: 3 clocks with FFE active, 2 with FFE bypassed. TX_LATENCY qualifies startup and is not counted twice in the TX-output reference delay.
 - RX_STARTUP_CYCLES defaults to TX_LATENCY+CHANNEL_LATENCY; TX_REF_DELAY_CYCLES defaults to CHANNEL_LATENCY+FFE_LATENCY+DFE_LATENCY.
-- Default BER_SKIP_TRAINING=1 excludes initial training decisions; BER_COUNTER_WIDTH=64. Counters stop together before overflow.
+- Count every eligible lane in the block: 0..2*N errors and 2*N compared bits for a full block. Partial startup/training blocks count only eligible lanes. Default BER_SKIP_TRAINING=1 excludes TRAIN_LEN symbols, not clocks; BER_COUNTER_WIDTH=64. Counters retain both values if the next eligible block would overflow.
 - Reset or RX/Channel config loads clear the counters. Noise/adaptation enable changes also clear the measurement and trigger a settling guard. Explicit BER clear does not restart training or reset the data stream.
 - Select FFE-only measurement by bypassing DFE; select after-DFE measurement with DFE active. One monitor follows the selected RX path.
-- Detailed edge/latency, counter and verification contracts: 99_doc/TOP_BER.md.
+- Top forwards NUMBER_SYMBOL to TX/Channel/RX. Packed stream shape is [NUMBER_SYMBOL-1:0][width-1:0], lane 0 first chronologically. Child RTL must implement cross-lane state progression.
+- Detailed edge/latency, counter and verification contracts: 99_doc/TOP_BER.md. Reproducible block tests: make -C 02_test/ber test.
 
 SOURCES / DECISIONS
 - User-selected architecture: one PRBS -> MUX selecting a fixed Gray code -> PAM-4 mapper.

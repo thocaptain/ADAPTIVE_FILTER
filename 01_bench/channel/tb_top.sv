@@ -2,6 +2,7 @@
 
 module tb_top
 #(
+    parameter integer             NUMBER_SYMBOL  = 1,
     parameter logic signed [15:0] H1_Q12         = 16'sd2048,
     parameter logic        [31:0] NOISE_SEED     = 32'h00000a5b,
     parameter logic        [7:0]  DEFAULT_SNR_DB = 8'd20
@@ -10,14 +11,15 @@ module tb_top
       input  logic               i_clk
     , input  logic               i_rst_n
 
-    , input  logic signed [3:0]   i_sym              // Q4.0 {-3, -1, +1, +3}
+    , input  logic signed [NUMBER_SYMBOL-1:0][3:0] i_sym // Q4.0 {-3, -1, +1, +3}
     , input  logic               i_noise_en         // {0, 1}
     , input  logic        [7:0]   i_cfg_snr_db       // U8 [0, 255] dB
     , input  logic               i_cfg_noise_load   // {0, 1}
-    , output logic signed [7:0]   o_r                // Q4.4 [-8, 7.9375]
+    , output logic signed [NUMBER_SYMBOL-1:0][7:0] o_r   // Q4.4 [-8, 7.9375]
 );
 
     channel_top #(
+        .NUMBER_SYMBOL  (NUMBER_SYMBOL ),
         .H1_Q12         (H1_Q12        ),
         .NOISE_SEED     (NOISE_SEED    ),
         .DEFAULT_SNR_DB (DEFAULT_SNR_DB)

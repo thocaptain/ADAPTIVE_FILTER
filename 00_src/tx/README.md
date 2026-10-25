@@ -1,10 +1,14 @@
 # TX
 
-Source: [BLOCK_DIAGRAM_DESIGN_FLOW.txt](../../99_doc/BLOCK_DIAGRAM_DESIGN_FLOW.txt), draft 1.0.
+Source: [BLOCK_DIAGRAM_DESIGN_FLOW.txt](../../99_doc/BLOCK_DIAGRAM_DESIGN_FLOW.txt), draft 1.3.
 
 [TX](../tx/README.md) | [Channel](../channel/README.md) | [RX](../rx/README.md) | [Top.sv](../Top.sv)
 
-## Selected TX concept
+## Block interface
+
+`tx_top` must expose `parameter integer NUMBER_SYMBOL=1`. Ports `o_sym` and `o_bits_ref` use `[NUMBER_SYMBOL-1:0][3:0]` and `[NUMBER_SYMBOL-1:0][1:0]`. The tables below describe one lane (`NUMBER_SYMBOL=1` baseline). Each active clock carries one full block: lane `[0]` is earliest and lane `[NUMBER_SYMBOL-1]` latest in the same continuous symbol stream. Advance the single TX sequence NUMBER_SYMBOL symbol steps per clock; lanes are consecutive symbols, not independent PRBS channels.
+
+## Selected TX concept (NUMBER_SYMBOL=1 baseline)
 
 - Use ONE PRBS/LFSR source to control the selection of one Gray code per clock after reset.
 - The PRBS output used here is sel[1:0], a pseudo-random MUX select value in 0..3.

@@ -1,8 +1,12 @@
 # Channel
 
-Source: [BLOCK_DIAGRAM_DESIGN_FLOW.txt](../../99_doc/BLOCK_DIAGRAM_DESIGN_FLOW.txt), draft 1.1.
+Source: [BLOCK_DIAGRAM_DESIGN_FLOW.txt](../../99_doc/BLOCK_DIAGRAM_DESIGN_FLOW.txt), draft 1.3.
 
 [TX](../tx/README.md) | [Channel](../channel/README.md) | [RX](../rx/README.md) | [Top.sv](../Top.sv)
+
+## Block interface
+
+`channel_top` must expose `parameter integer NUMBER_SYMBOL=1`. Ports `i_sym` and `o_r` use `[NUMBER_SYMBOL-1:0][3:0]` and `[NUMBER_SYMBOL-1:0][7:0]`. The tables below describe one lane (`NUMBER_SYMBOL=1` baseline). Lane `[0]` is earliest and lane `[NUMBER_SYMBOL-1]` latest. Preserve ISI and noise-generator state across lanes and block boundaries; each lane represents the next symbol in the same stream. Channel latency parameters are clocks, not symbol counts.
 
 ## External interface
 

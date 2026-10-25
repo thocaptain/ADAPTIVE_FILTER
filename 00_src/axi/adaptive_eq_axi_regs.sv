@@ -285,8 +285,8 @@ module adaptive_eq_axi_regs
     initial begin
         if (C_S_AXI_DATA_WIDTH != 32 || C_S_AXI_ADDR_WIDTH < 7)
             $fatal(1, "AXI registers require 32-bit data and at least 7 address bits");
-        if (NUMBER_SYMBOL != 1 || BER_COUNTER_WIDTH < 2 || BER_COUNTER_WIDTH > 64)
-            $fatal(1, "AXI registers require one symbol/clock and BER width 2..64");
+        if (NUMBER_SYMBOL < 1 || BER_COUNTER_WIDTH < 2 || BER_COUNTER_WIDTH > 64)
+            $fatal(1, "AXI registers require NUMBER_SYMBOL>=1 and BER width 2..64");
     end
 
 endmodule

@@ -73,7 +73,8 @@ module Top
     logic signed [15:0] RX_dfe0;     // Q4.12 [-8, 8-2^-12]
 
     tx_top #(
-        .PRBS_SEED (PRBS_SEED)
+        .NUMBER_SYMBOL (NUMBER_SYMBOL),
+        .PRBS_SEED     (PRBS_SEED    )
     ) tx_top (
         .i_clk      (i_clk      ),
         .i_rst_n    (i_rst_n    ),
@@ -85,6 +86,7 @@ module Top
     assign o_tx_bits   = TX_bits_ref;
 
     channel_top #(
+        .NUMBER_SYMBOL  (NUMBER_SYMBOL ),
         .H1_Q12         (CHANNEL_H1_Q12),
         .NOISE_SEED     (NOISE_SEED    ),
         .DEFAULT_SNR_DB (DEFAULT_SNR_DB)
@@ -101,15 +103,16 @@ module Top
     assign o_channel_r = CH_r;
 
     rx_top #(
+        .NUMBER_SYMBOL    (NUMBER_SYMBOL      ),
         .TRAIN_LEN        (TRAIN_LEN          ),
         .STARTUP_CYCLES   (RX_STARTUP_CYCLES  ),
         .REF_DELAY_CYCLES (TX_REF_DELAY_CYCLES),
         .MU_F20           (MU_F20             )
     ) rx_top (
-        .i_clk        (i_clk       ),
-        .i_rst_n      (i_rst_n     ),
-        .i_r          (CH_r        ),
-        .i_tx_ref     (TX_sym      ),
+        .i_clk    (i_clk  ),
+        .i_rst_n  (i_rst_n),
+        .i_r      (CH_r   ),
+        .i_tx_ref (TX_sym ),
 
         .i_cfg_ffe0   (i_cfg_ffe0  ),
         .i_cfg_ffe1   (i_cfg_ffe1  ),
@@ -120,13 +123,13 @@ module Top
         .i_ffe_bypass (i_ffe_bypass),
         .i_dfe_bypass (i_dfe_bypass),
 
-        .o_sym        (RX_sym      ),
-        .o_bits       (RX_bits     ),
-        .o_y          (RX_y        ),
-        .o_ffe0       (RX_ffe0     ),
-        .o_ffe1       (RX_ffe1     ),
-        .o_ffe2       (RX_ffe2     ),
-        .o_dfe0       (RX_dfe0     )
+        .o_sym  (RX_sym ),
+        .o_bits (RX_bits),
+        .o_y    (RX_y   ),
+        .o_ffe0 (RX_ffe0),
+        .o_ffe1 (RX_ffe1),
+        .o_ffe2 (RX_ffe2),
+        .o_dfe0 (RX_dfe0)
     );
 
     assign o_rx_sym    = RX_sym;
@@ -138,22 +141,31 @@ module Top
     assign o_ffe2      = RX_ffe2;
     assign o_dfe0      = RX_dfe0;
 
-    localparam integer                       BER_RX_LATENCY    = FFE_LATENCY + DFE_LATENCY + SLICER_LATENCY;
-    localparam integer                       BER_PATH_LATENCY  = CHANNEL_LATENCY + BER_RX_LATENCY;
-    localparam integer                       BER_MAX_DELAY     = BER_PATH_LATENCY + FFE_SYMBOL_DELAY;
-    localparam integer                       BER_TRAIN_END     = RX_STARTUP_CYCLES + BER_RX_LATENCY
-                                                                 + (BER_SKIP_TRAINING ? TRAIN_LEN : 0);
-    localparam integer                       BER_TX_READY      = TX_LATENCY + BER_MAX_DELAY;
-    localparam integer                       BER_AGE_MAX       = (BER_TRAIN_END > BER_TX_READY) ? BER_TRAIN_END : BER_TX_READY;
-    localparam integer                       BER_AGE_WIDTH     = (BER_AGE_MAX < 1) ? 1 : $clog2(BER_AGE_MAX + 1);
-    localparam integer                       BER_DELAY_WIDTH   = (BER_MAX_DELAY < 1) ? 1 : $clog2(BER_MAX_DELAY + 1);
-    localparam integer                       BER_SETTLE_CYCLES = (BER_MAX_DELAY < 1) ? 1 : BER_MAX_DELAY;
-    localparam integer                       BER_SETTLE_WIDTH  = $clog2(BER_SETTLE_CYCLES + 1);
-    localparam logic [BER_COUNTER_WIDTH-1:0] BER_COUNTER_MAX   = {BER_COUNTER_WIDTH{1'b1}};
+    localparam integer                       BER_RX_LATENCY      = FFE_LATENCY + DFE_LATENCY + SLICER_LATENCY;
+    localparam integer                       BER_PATH_LATENCY    = CHANNEL_LATENCY + BER_RX_LATENCY;
+    localparam integer                       BER_DELAY_BLOCKS    = FFE_SYMBOL_DELAY / NUMBER_SYMBOL;
+    localparam integer                       BER_DELAY_LANES     = FFE_SYMBOL_DELAY % NUMBER_SYMBOL;
+    localparam integer                       BER_MAX_DELAY       = BER_PATH_LATENCY + BER_DELAY_BLOCKS + ((BER_DELAY_LANES != 0) ? 1 : 0);
+    localparam integer                       BER_TRAIN_SYMBOLS   = BER_SKIP_TRAINING ? TRAIN_LEN : 0;
+    localparam integer                       BER_TRAIN_BASE      = RX_STARTUP_CYCLES + BER_RX_LATENCY;
+    localparam integer                       BER_TRAIN_END       = BER_TRAIN_BASE + BER_TRAIN_SYMBOLS / NUMBER_SYMBOL
+                                                                   + ((BER_TRAIN_SYMBOLS % NUMBER_SYMBOL != 0) ? 1 : 0);
+    localparam integer                       BER_TX_READY        = TX_LATENCY + BER_MAX_DELAY;
+    localparam integer                       BER_AGE_MAX         = (BER_TRAIN_END > BER_TX_READY) ? BER_TRAIN_END
+                                                                   : ((BER_TX_READY < 1) ? 1 : BER_TX_READY);
+    localparam integer                       BER_AGE_WIDTH       = (BER_AGE_MAX < 1) ? 1 : $clog2(BER_AGE_MAX + 1);
+                                                                   localparam integer                       BER_DELAY_WIDTH     = (BER_MAX_DELAY < 1) ? 1 : $clog2(BER_MAX_DELAY + 1);
+    localparam integer                       BER_SETTLE_CYCLES   = (BER_MAX_DELAY < 1) ? 1 : BER_MAX_DELAY;
+    localparam integer                       BER_SETTLE_WIDTH    = $clog2(BER_SETTLE_CYCLES + 1);
+    localparam integer                       BER_INCREMENT_WIDTH = $clog2(64'(NUMBER_SYMBOL) * 2 + 1);
+    localparam logic [BER_COUNTER_WIDTH-1:0] BER_COUNTER_MAX     = {BER_COUNTER_WIDTH{1'b1}};
 
-    logic [1:0] ber_tx_history [0:BER_MAX_DELAY];
-    logic [1:0] ber_error_mask;
-    logic [1:0] ber_error_increment;
+    logic [NUMBER_SYMBOL-1:0][1:0] ber_tx_history [0:BER_MAX_DELAY];
+    logic [NUMBER_SYMBOL-1:0][1:0] ber_tx_aligned;
+    logic [NUMBER_SYMBOL-1:0][1:0] ber_error_mask;
+    logic [NUMBER_SYMBOL-1:0]      ber_lane_ready;
+    logic [BER_INCREMENT_WIDTH-1:0] ber_error_increment;
+    logic [BER_INCREMENT_WIDTH-1:0] ber_total_increment;
     logic [BER_AGE_WIDTH-1:0] ber_age;
     logic [BER_DELAY_WIDTH-1:0] ber_delay;
     logic [BER_SETTLE_WIDTH-1:0] ber_settle;
@@ -162,7 +174,7 @@ module Top
     logic ber_adapt_en_q;
     logic ber_config_change;
 
-    assign ber_tx_history[0] = TX_bits_ref[0];
+    assign ber_tx_history[0] = TX_bits_ref;
 
     genvar ber_tap;
     generate
@@ -174,18 +186,64 @@ module Top
         end
     endgenerate
 
-    assign ber_delay = BER_DELAY_WIDTH'(BER_PATH_LATENCY
-                     + (ber_ffe_bypass_q ? 0 : FFE_SYMBOL_DELAY));
+    genvar ber_lane;
+    generate
+        for (ber_lane = 0; ber_lane < NUMBER_SYMBOL; ber_lane = ber_lane + 1) begin : g_ber_lane
+            localparam integer REF_BLOCK = BER_PATH_LATENCY + BER_DELAY_BLOCKS
+                                         + ((ber_lane < BER_DELAY_LANES) ? 1 : 0);
+            localparam integer REF_LANE  = (ber_lane + NUMBER_SYMBOL - BER_DELAY_LANES) % NUMBER_SYMBOL;
+            localparam integer TRAIN_END = BER_TRAIN_BASE + BER_TRAIN_SYMBOLS / NUMBER_SYMBOL
+                                         + ((ber_lane < BER_TRAIN_SYMBOLS % NUMBER_SYMBOL) ? 1 : 0);
+
+            assign ber_tx_aligned[ber_lane] = ber_ffe_bypass_q
+                                           ? ber_tx_history[BER_PATH_LATENCY][ber_lane]
+                                           : ber_tx_history[REF_BLOCK][REF_LANE];
+            logic training_ready;
+            logic ffe_reference_ready;
+            logic bypass_reference_ready;
+
+            if (TRAIN_END == 0) begin : g_no_training_wait
+                assign training_ready = 1'b1;
+            end else begin : g_training_wait
+                assign training_ready = ber_age >= BER_AGE_WIDTH'(TRAIN_END);
+            end
+            if (TX_LATENCY + REF_BLOCK == 0) begin : g_no_ffe_wait
+                assign ffe_reference_ready = 1'b1;
+            end else begin : g_ffe_wait
+                assign ffe_reference_ready = ber_age >= BER_AGE_WIDTH'(TX_LATENCY + REF_BLOCK);
+            end
+            if (TX_LATENCY + BER_PATH_LATENCY == 0) begin : g_no_bypass_wait
+                assign bypass_reference_ready = 1'b1;
+            end else begin : g_bypass_wait
+                assign bypass_reference_ready = ber_age >= BER_AGE_WIDTH'(TX_LATENCY + BER_PATH_LATENCY);
+            end
+            assign ber_lane_ready[ber_lane] = training_ready
+                                           && (ber_ffe_bypass_q ? bypass_reference_ready : ffe_reference_ready);
+        end
+    endgenerate
+
+    assign ber_delay = ber_ffe_bypass_q ? BER_DELAY_WIDTH'(BER_PATH_LATENCY)
+                                       : BER_DELAY_WIDTH'(BER_MAX_DELAY);
     assign o_ber_latency = 32'(ber_delay);
     assign ber_config_change = i_cfg_load || i_cfg_noise_load
                              || (i_noise_en != ber_noise_en_q)
                              || (i_adapt_en != ber_adapt_en_q);
-    assign ber_error_mask = RX_bits[0] ^ ber_tx_history[ber_delay];
-    assign ber_error_increment = {1'b0, ber_error_mask[0]} + {1'b0, ber_error_mask[1]};
+    assign ber_error_mask = RX_bits ^ ber_tx_aligned;
     assign o_ber_ready = i_rst_n && !i_ber_clear && !ber_config_change
-                       && (ber_settle == '0)
-                       && (ber_age >= BER_AGE_WIDTH'(BER_TRAIN_END))
-                       && (ber_age >= BER_AGE_WIDTH'(TX_LATENCY) + BER_AGE_WIDTH'(ber_delay));
+                       && (ber_settle == '0) && (|ber_lane_ready);
+
+    always_comb begin
+        ber_error_increment = '0;
+        ber_total_increment = '0;
+        for (integer lane = 0; lane < NUMBER_SYMBOL; lane = lane + 1) begin
+            if (ber_lane_ready[lane]) begin
+                ber_error_increment = ber_error_increment
+                                    + BER_INCREMENT_WIDTH'(ber_error_mask[lane][0])
+                                    + BER_INCREMENT_WIDTH'(ber_error_mask[lane][1]);
+                ber_total_increment = ber_total_increment + BER_INCREMENT_WIDTH'(2);
+            end
+        end
+    end
 
     always_ff @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
@@ -209,16 +267,16 @@ module Top
                 o_ber_error_bits <= '0;
                 o_ber_total_bits <= '0;
             end else if (i_ber_en && o_ber_ready
-                         && (o_ber_total_bits <= BER_COUNTER_MAX - BER_COUNTER_WIDTH'(2))) begin
+                         && (o_ber_total_bits <= BER_COUNTER_MAX - BER_COUNTER_WIDTH'(ber_total_increment))) begin
                 o_ber_error_bits <= o_ber_error_bits + BER_COUNTER_WIDTH'(ber_error_increment);
-                o_ber_total_bits <= o_ber_total_bits + BER_COUNTER_WIDTH'(2);
+                o_ber_total_bits <= o_ber_total_bits + BER_COUNTER_WIDTH'(ber_total_increment);
             end
         end
     end
 
     initial begin
-        if (NUMBER_SYMBOL != 1)
-            $fatal(1, "Only NUMBER_SYMBOL=1 is implemented; parallel datapath and BER support is required");
+        if (NUMBER_SYMBOL < 1 || BER_COUNTER_WIDTH < BER_INCREMENT_WIDTH)
+            $fatal(1, "BER requires NUMBER_SYMBOL>=1 and counter capacity for a complete symbol block");
         if (TX_LATENCY < 0 || CHANNEL_LATENCY < 0 || FFE_LATENCY < 0 || DFE_LATENCY < 0
             || SLICER_LATENCY < 0 || FFE_SYMBOL_DELAY < 0 || RX_STARTUP_CYCLES < 0
             || TRAIN_LEN < 0 || BER_COUNTER_WIDTH < 2 || BER_COUNTER_WIDTH > 64)

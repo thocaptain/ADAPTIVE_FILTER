@@ -16,7 +16,7 @@ The AXI signal names and parameter convention follow the supplied `myip_hamming_
 - AXI data is 32 bits (`C_S_AXI_DATA_WIDTH=32` only); local byte address width defaults to 8 and must be at least 7. The peripheral base address is assigned by the enclosing system.
 - `S_AXI_ACLK` clocks both the bridge and Top. Supply an active-low reset with release synchronized to that clock on `S_AXI_ARESETN`.
 - Stream connections use `[NUMBER_SYMBOL-1:0][width-1:0]` packed arrays; diagnostic registers read lane `[0]`.
-- All Top parameters, including latency and counter width, are forwarded. `NUMBER_SYMBOL=1` is the only implemented throughput, matching Top's current guard.
+- All Top parameters, including NUMBER_SYMBOL, latency and counter width, are forwarded. BER aggregates all eligible lanes in each block. The real child RTL must implement the matching block interfaces; see [TOP_BER.md](../../99_doc/TOP_BER.md).
 - Compile `Top_wrapper.sv`, `axi/adaptive_eq_axi_regs.sv`, `Top.sv`, and the team-provided `tx_top`, `channel_top`, `rx_top` sources. The child RTL is not implemented here.
 - CPU AXI accesses configure/monitor the continuously running datapath; they do not carry the symbol stream. `AWPROT` and `ARPROT` are accepted but unused; this peripheral performs no privilege filtering.
 
@@ -36,9 +36,9 @@ Offsets are bytes relative to the peripheral base. Access words at aligned 4-byt
 | `0x1C` | STATUS | RO | Bit 0 live BER ready; bit 1 snapshot valid. Other bits 0. |
 | `0x20` | ERROR_LO | RO | Snapshot error count [31:0]. Reset 0. |
 | `0x24` | ERROR_HI | RO | Snapshot error count [63:32]. Reset 0. |
-| `0x28` | TOTAL_LO | RO | Snapshot compared-bit count [31:0]. Reset 0. |
+| `0x28` | TOTAL_LO | RO | Snapshot compared-bit count [31:0], aggregated across eligible lanes. Reset 0. |
 | `0x2C` | TOTAL_HI | RO | Snapshot compared-bit count [63:32]. Reset 0. |
-| `0x30` | SNAP_LATENCY | RO | TX-reference alignment delay captured with the counters. Reset 0. |
+| `0x30` | SNAP_LATENCY | RO | Maximum TX-reference history age captured with the counters. Reset 0. |
 | `0x34` | FFE0 | RO | Live active signed Q4.12 coefficient, sign-extended to 32 bits. |
 | `0x38` | FFE1 | RO | Live active signed Q4.12 coefficient, sign-extended to 32 bits. |
 | `0x3C` | FFE2 | RO | Live active signed Q4.12 coefficient, sign-extended to 32 bits. |
@@ -49,7 +49,7 @@ Offsets are bytes relative to the peripheral base. Access words at aligned 4-byt
 | `0x50` | RX_SYM | RO | Live signed Q4.0 recovered symbol, sign-extended to 32 bits. |
 | `0x54` | RX_BITS | RO | Live 2-bit recovered Gray word, zero-extended. |
 | `0x58` | RX_Y | RO | Live signed Q4.12 pre-slicer sample, sign-extended to 32 bits. |
-| `0x5C` | LIVE_LATENCY | RO | Current TX-reference alignment delay in clocks. |
+| `0x5C` | LIVE_LATENCY | RO | Current maximum TX-reference history age in clocks (see block BER alignment contract). |
 
 Shadow coefficient readbacks are zero-extended raw 16-bit encodings. Convert to signed `int16_t` and divide by 4096 for real values. Coefficients and bypass shadows become active together on COMMAND bit 0. Noise/adaptation/BER enable bits are live, as specified by Top; changing noise/adaptation clears its BER epoch. Channel SNR becomes active only on COMMAND bit 1.
 
@@ -69,9 +69,9 @@ There is no hardware measurement-length controller or interrupt in this initial 
 
 ## Verification
 
-The installed Verilator compiled and simulated the register bridge with BER counter widths 64 and 16 (address widths 8 and 7). Directed checks and 500 randomized writes per configuration covered AW-before-W, W-before-AW, simultaneous channels, byte strobes, response backpressure, command pulses, signed readback, snapshot stability, invalid accesses, concurrent read/write activity and reset with incomplete/blocked transactions.
+The installed Verilator compiled and simulated the register bridge with BER counter widths 64 and 16 (address widths 8 and 7), including a NUMBER_SYMBOL=4 register-interface case. Directed checks and 500 randomized writes per configuration covered AW-before-W, W-before-AW, simultaneous channels, byte strobes, response backpressure, command pulses, signed readback, snapshot stability, invalid accesses, concurrent read/write activity and reset with incomplete/blocked transactions.
 
-A separate simulation instantiated the actual `Top_wrapper` and `Top` with temporary behavioral child-module fixtures. It checked coefficient shadow/load wiring, bypass-dependent latency, BER counting, snapshots and core-only reset. These fixtures exercise integration and are not TX/Channel/RX DSP implementations. Test files were kept outside the repository; simulation with the real child RTL and Vivado synthesis remain pending.
+Separate simulations instantiated the actual `Top_wrapper` and `Top` at NUMBER_SYMBOL=1 and 4 with temporary behavioral child-module fixtures. They checked coefficient shadow/load wiring, bypass-dependent latency, BER counting, snapshots and core-only reset. These fixtures exercise integration and are not TX/Channel/RX DSP implementations. Test files were kept outside the repository; simulation with the real child RTL and Vivado synthesis remain pending.
 
 ## References
 

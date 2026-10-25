@@ -1,93 +1,97 @@
-# Top-level BER monitoring
+# Top-level block BER monitoring
 
-The BER monitor is implemented inline in [Top.sv](../00_src/Top.sv). It uses the existing TX Gray reference and selected RX recovered bits. No separate BERT RTL module is instantiated.
+The BER monitor is implemented inline in [Top.sv](../00_src/Top.sv). It compares recovered RX Gray labels with the delayed TX Gray reference. [Top_wrapper.sv](../00_src/Top_wrapper.sv) exposes configuration and coherent counter snapshots through AXI4-Lite.
+
+## Block ordering and interfaces
+
+`NUMBER_SYMBOL=N` is the number of consecutive symbols processed per clock. Packed buses use `[N-1:0][width-1:0]`: TX/RX amplitudes have 4 bits per lane, Gray labels 2, Channel samples 8 and pre-slicer samples 16. Lane `[0]` is the earliest symbol in a block; lane `[N-1]` is latest. The next clock continues that same stream. Coefficients and configuration remain shared scalar ports. Cast `$signed(bus[k])` when using one packed amplitude lane in signed arithmetic.
+
+Top forwards NUMBER_SYMBOL to `tx_top`, `channel_top` and `rx_top`. Each child must implement those packed interfaces and its state progression across lanes/block boundaries. Changing the bus width alone does not implement parallel DSP. There are no stream valid/ready ports: steady operation carries one complete N-symbol block every clock, without padded or idle lanes.
 
 ## Measurement controls and outputs
 
 | Port | Width | Meaning |
 |---|---|---|
-| `i_ber_en` | 1 | Enable counting after alignment/startup/training guards pass; 0 pauses counting |
-| `i_ber_clear` | 1 | Synchronously clear both counters; does not reset TX/Channel/RX or reference history |
-| `o_ber_error_bits` | `BER_COUNTER_WIDTH` | Number of differing bits |
-| `o_ber_total_bits` | `BER_COUNTER_WIDTH` | Number of compared bits |
-| `o_ber_ready` | 1 | Current reference/data alignment is ready for measurement |
-| `o_ber_latency` | 32 | Current TX-reference-to-RX-bit alignment delay, in clocks |
+| `i_ber_en` | 1 | Count eligible lanes when 1; pause when 0 |
+| `i_ber_clear` | 1 | Synchronously clear counters without resetting the stream/history/training age |
+| `o_ber_error_bits` | `BER_COUNTER_WIDTH` | Number of differing bits across all counted lanes |
+| `o_ber_total_bits` | `BER_COUNTER_WIDTH` | Number of compared bits across all counted lanes |
+| `o_ber_ready` | 1 | At least one lane is eligible and configuration settling has completed |
+| `o_ber_latency` | 32 | Maximum TX history age needed by the selected mode, in clocks |
 
-For each eligible symbol, `TX_reference XOR RX_bits` gives two error bits. Their population count adds 0, 1 or 2 to the error counter; the total counter increments by 2. Compute BER as `error_bits / total_bits` only when `total_bits > 0`. Division is left to the host/display logic.
+For each eligible lane k, count the set bits in `RX_bits[k] XOR aligned_TX_bits[k]` (0, 1 or 2 errors). Sum across the eligible lanes and add `2*eligible_lane_count` to the total. A complete steady-state block adds `2*N` total bits and 0..`2*N` error bits. BER is `error_bits/total_bits`, calculated on the CPU only when total is nonzero. It is a bit-error ratio, not a ratio of erroneous blocks.
 
-Default counter width is 64 bits. When the next complete two-bit symbol would overflow the total counter, both counters stop together. The largest total is `2^BER_COUNTER_WIDTH-2`; counters do not wrap. Supported widths are 2..64.
+Example: N=4, three eligible symbols with error counts 0/1/2 add 3 errors and 6 compared bits. A complete error-free N=4 block adds 0 errors and 8 bits. The per-block increment width is `$clog2(2*N+1)`, so the all-bits-wrong block cannot overflow the increment.
 
-## Symbols per clock
+Counters default to 64 bits, supported range 2..64. They must be wide enough to represent a complete `2*N`-bit increment. If the next eligible block would overflow the total counter, both counters retain their values; no block is partially counted to fill the remaining capacity. The largest reachable total depends on block size and any initial partial block, is even, and is at most `2^BER_COUNTER_WIDTH-2`.
 
-`Top.NUMBER_SYMBOL` defaults to 1. Stream buses use two packed dimensions: `[NUMBER_SYMBOL-1:0][width-1:0]`. TX/RX symbols use `[NUMBER_SYMBOL-1:0][3:0]`, Gray buses `[NUMBER_SYMBOL-1:0][1:0]`, Channel samples `[NUMBER_SYMBOL-1:0][7:0]`, and pre-slicer RX samples `[NUMBER_SYMBOL-1:0][15:0]`. Access symbol/sample lane `k` as `bus[k]` and its bit `b` as `bus[k][b]`. Fixed-point formats apply to each lane; coefficient and configuration ports retain their current widths. Use `$signed(bus[k])` when interpreting an individual packed lane in signed arithmetic.
+## Clock latency and symbol alignment
 
-Only `NUMBER_SYMBOL=1` is currently implemented. Top rejects other values with `$fatal` to prevent partial processing or incorrect BER totals. Supporting `NUMBER_SYMBOL>1` requires matching child-module interfaces, chronological lane packing, cross-lane Channel/FFE/DFE/LMS state handling, training scheduling and symbol-aware BER alignment/counting. A wider packed bus alone does not implement parallel processing. Latency parameters remain in clocks and FFE_SYMBOL_DELAY remains in symbols.
+The latency parameters describe implemented child pipelines; they do not insert registers into those children or acquire alignment automatically.
 
-## Latency contract
-
-The parameters describe the implemented pipeline; they do not insert pipeline registers into the child modules or discover latency automatically.
-
-| Parameter | Default | Definition |
+| Parameter | Unit | Default |
 |---|---|---|
-| `TX_LATENCY` | 1 | Startup clocks until the first actual TX symbol/reference is available |
-| `CHANNEL_LATENCY` | 1 | Registered Channel latency |
-| `FFE_LATENCY` | 0 | RX input/FFE pipeline latency |
-| `DFE_LATENCY` | 0 | RX DFE/cancellation pipeline latency |
-| `SLICER_LATENCY` | 1 | Slicer/Gray output pipeline latency |
-| `FFE_SYMBOL_DELAY` | 1 | Algorithmic symbol target delay when FFE is active |
-| `BER_SKIP_TRAINING` | 1 | Exclude the initial `TRAIN_LEN` RX samples |
+| `TX_LATENCY` | Startup clocks until first actual TX block/reference | 1 |
+| `CHANNEL_LATENCY` | Clocks | 1 |
+| `FFE_LATENCY` | Clocks, including RX input pipeline | 0 |
+| `DFE_LATENCY` | Clocks | 0 |
+| `SLICER_LATENCY` | Clocks, including Gray output registers | 1 |
+| `FFE_SYMBOL_DELAY` | Algorithmic target delay in symbols, when FFE is active | 1 |
+| `TRAIN_LEN` | RX symbols, not blocks/clocks | 3000 |
+| `BER_SKIP_TRAINING` | 1 excludes the initial training symbols | 1 |
 
 ```text
 RX_PIPELINE = FFE_LATENCY + DFE_LATENCY + SLICER_LATENCY
-PATH_DELAY  = CHANNEL_LATENCY + RX_PIPELINE
-BER_DELAY   = PATH_DELAY + (latched_ffe_bypass ? 0 : FFE_SYMBOL_DELAY)
+P = CHANNEL_LATENCY + RX_PIPELINE                 // physical block clocks
+D = latched_ffe_bypass ? 0 : FFE_SYMBOL_DELAY     // algorithmic symbols
+Q = D / N
+R = D % N
+reference_age(k) = P + Q + (k < R ? 1 : 0)
+reference_lane(k) = (k + N - R) % N
 ```
 
-`o_ber_latency` reports BER_DELAY. TX pipeline latency is excluded from this delay because the checkpoint is already the TX output `TX_bits_ref`; TX_LATENCY is used for startup qualification. With defaults, BER_DELAY is 3 clocks for FFE-active modes and 2 for FFE-bypassed modes.
+RX lane k uses `TX_history[reference_age(k)][reference_lane(k)]`. This is the chronological TX symbol at `(t-P)*N+k-D` for RX block t. In particular, D=1 with N>1 is not an extra whole-block clock delay for every lane.
 
-Bypass and processing paths must have equal physical pipeline latency, as already specified for RX. Additional RX input registers belong in FFE_LATENCY; output/Gray registers belong in SLICER_LATENCY. If the implementation changes a recurrence or target symbol delay, update the timing contract and RX training alignment together.
+For N=4 and D=1:
 
-The default RX startup and training-reference parameters now follow the declared stages:
+| RX lane in block t | Matching TX reference |
+|---|---|
+| 0 | block `t-P-1`, lane 3 |
+| 1 | block `t-P`, lane 0 |
+| 2 | block `t-P`, lane 1 |
+| 3 | block `t-P`, lane 2 |
 
-```text
-RX_STARTUP_CYCLES   = TX_LATENCY + CHANNEL_LATENCY
-TX_REF_DELAY_CYCLES = CHANNEL_LATENCY + FFE_LATENCY + DFE_LATENCY
-```
+The same quotient/remainder mapping handles D>=N and exact multiples of N. FFE bypass sets D=0 and compares every lane with the same lane P clocks earlier. Physical bypass paths must have the same clock latency as their processing paths.
 
-These existing RX parameters can still be explicitly overridden when the actual module schedule requires it.
+`o_ber_latency = P + ceil(D/N)` reports the maximum required history age. Some lanes can use a newer history block. It is not a claim that every lane has that many whole-clock delays. TX_LATENCY is used only for startup qualification because the stored reference checkpoint is already the TX output. With N=1/defaults, the reported value remains 3 clocks for FFE active and 2 for FFE bypass.
 
-## Select the measurement point
+The RX defaults remain `RX_STARTUP_CYCLES=TX_LATENCY+CHANNEL_LATENCY` and `TX_REF_DELAY_CYCLES=CHANNEL_LATENCY+FFE_LATENCY+DFE_LATENCY`. The latter remains a clock count; the RX must apply algorithmic symbol alignment separately. Override these only to match the actual module schedule.
 
-| Latched FFE bypass | Latched DFE bypass | Measurement through RX slicer/Gray output |
+## Startup and training boundaries
+
+Let a be completed clocks since reset and `B=RX_STARTUP_CYCLES+RX_PIPELINE`. RX processed-symbol index for lane k is `(a-B)*N+k`. The monitor excludes a lane until that index is at least `TRAIN_LEN` (or 0 when BER_SKIP_TRAINING=0). Independently, the lane's TX reference is valid only when `a >= TX_LATENCY+reference_age(k)`.
+
+These guards are per lane, including when training or initial reference fill ends inside a block. For N=4/TRAIN_LEN=5, training covers the first full block plus lane 0 of the next block; the remaining three lanes can add 6 bits if their TX references are valid. `o_ber_ready` can therefore assert for a partial block; the reported total always reflects the exact number of compared bits.
+
+The TX history shifts every clock while BER is paused or cleared. The comparator observes the pre-edge RX output and matching pre-edge TX history; counters update on that edge. Age saturates after all lanes can be eligible.
+
+## Measurement point and configuration
+
+| Latched FFE bypass | Latched DFE bypass | Selected measurement |
 |---|---|---|
 | 0 | 0 | After FFE + DFE |
 | 0 | 1 | FFE only |
 | 1 | 0 | DFE only |
 | 1 | 1 | Raw Channel |
 
-The comparator always receives `RX_bits`, after the slicer/demapper. Analog/fixed-point FFE/DFE amplitudes are not bit labels. The selected bypass configuration determines which equalizer result reaches that decision point. This is one monitor for the selected mode, rather than simultaneous independent FFE and DFE counters.
+One monitor follows the selected post-slicer/Gray RX output. Bypass flags apply only on `i_cfg_load`; changing an unloaded flag does not change alignment.
 
-FFE bypass is latched on `i_cfg_load`, matching the RX contract. Changing a bypass input without loading does not change BER alignment.
+Global reset, RX config load, Channel SNR load, and changes to noise/adaptation enable clear both counters. Config changes also suppress measurement until the worst-case history interval has settled. A loaded mode never mixes old/new pipeline blocks into a counted block. Explicit BER clear does not repeat that settling interval or restart training. RX config loads do not restart training age; starting a fresh training run requires chain reset.
 
-## Startup, training and configuration changes
+The existing AXI register map and snapshot mechanism are unchanged. Both aggregate counters and latency are captured on the same edge; the CPU reads stable 32-bit low/high halves. Diagnostic sample registers still read lane 0 only, independently from block BER accumulation. See [AXI README](../00_src/axi/README.md).
 
-The TX Gray history shifts every clock, even when counting is disabled. The age guard excludes initial TX placeholders and pipeline fill. With BER_SKIP_TRAINING=1 it also waits for the first post-training RX decision to reach the comparator. The monitor observes the previously registered RX output at the active edge, and selects the matching TX history entry for that same observation.
+## Reproducible verification
 
-Both counters clear automatically on:
+Run `make -C 02_test/ber test` from the repository root. The permanent [C++/Verilator regression](../02_test/ber/README.md) checks the actual Top against chronological TX symbol history, using isolated behavioral transport/error-injection fixtures. It checks exact error/bit totals on every clock, upper-lane-only errors, all lanes wrong, cross-block alignment, partial training/startup blocks, pause/clear, saturation, all modes, config settling and global reset.
 
-- Global reset.
-- RX coefficient/bypass load (`i_cfg_load`).
-- Channel SNR load (`i_cfg_noise_load`).
-- A change to runtime noise enable or adaptation enable.
-
-Configuration changes also suppress measurement for the maximum alignment-delay settling interval. TX history continues shifting; the data stream, RNG and equalizer histories are not paused by BER logic. `i_ber_clear` clears the measurement alone and does not repeat training.
-
-Training age is measured from global reset. As specified for RX, coefficient/config loads do not restart the RX training counter. Starting a fresh training run requires the normal chain reset sequence.
-
-Recommended use: set the intended configuration, keep i_ber_en=0 during setup, pulse i_ber_clear if needed, wait for o_ber_ready, then assert i_ber_en for the desired measurement interval. Deassert i_ber_en before reading a stable snapshot of both counts.
-
-## Verification scope
-
-The actual Top.sv BER logic was compiled and simulated with the installed Verilator using temporary behavioral transport/error-injection fixtures. Eight parameter combinations covered nonzero/zero pipeline latency, algorithmic delays 0/1/2, training inclusion/exclusion and reduced counter widths for overflow checks, plus the default 64-bit/3000-training-sample configuration. The scenarios checked error-free alignment over a PRBS period, 0/1/2-bit injected errors, pause/clear, counter saturation, all four bypass modes, configuration epochs and reset.
-
-The fixtures are not DSP implementations of TX/Channel/RX and were kept outside the repository. Real chain BER remains dependent on the eventual RTL modules and their agreed pipeline schedules. No Python reference co-simulation was used.
+The ten cases cover N=1/2/3/4/8; symbol delays 0/1/3/5/6, including greater-than-block and exact-block delays; zero/nonzero pipelines; TX startup 0/1/2; training enabled/disabled; and 4/8/64-bit counters. The N=1 case includes default 3000-symbol training and 64-bit counters. Fixtures do not implement DSP, AWGN or LMS; full chain numerical BER still depends on the team-provided child RTL and its agreed lane/state/latency contract. No Python reference co-simulation is used.
