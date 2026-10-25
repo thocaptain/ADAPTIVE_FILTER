@@ -1,0 +1,452 @@
+PAM-4 BLOCK DIAGRAM DESIGN FLOW - DRAFT 1.0 - SIGNED 4-BIT TX SYMBOL - SINGLE-PRBS GRAY-SELECTION TX
+Main sections: 1) TX, 2) CHANNEL, 3) RX. Current scope: TX, CHANNEL external widths, and an RX submodule / fixed-point proposal.
+Purpose: an editable design proposal; refine block boundaries and interfaces step by step.
+Only this TXT design document is updated. Existing RTL and the Python model are unchanged.
+
+CONTEXT / SELECTED TX CONCEPT
+- Use ONE PRBS/LFSR source to control the selection of one Gray code per clock after reset.
+- The PRBS output used here is sel[1:0], a pseudo-random MUX select value in 0..3.
+- A 4:1 MUX selects one of four constant Gray words: 00, 01, 11, 10.
+- The PAM-4 mapper maps that selected Gray word to one signed 4-bit integer amplitude: -3, -1, +1, +3.
+- Each clock in continuous operation produces ONE new symbol. A 2-bit select code is one control word for that symbol.
+- There is no serial-bit pair collector in this proposal. There is no runtime MUX between two PRBS cores.
+- Draft PRBS order N=7 is a starting parameter, not a second source. Exact taps/shift direction will be frozen later.
+- Selected throughput: one new symbol every clock after reset and pipeline fill, without per-symbol handshake signals.
+- PRBS selection is deterministic pseudo-random; seed and the agreed LFSR convention determine the sequence.
+- Current Python TX still uses its existing random-symbol source. This document does not replace that source.
+
+1. TX - THREE PROCESSING SUBMODULES
+
+tx_top: common clock/reset; initialize the PRBS seed at reset, then run continuously
+
+  One PRBS/LFSR ---- sel[1:0] ----> 4:1 Gray-code MUX ---- gray_code[1:0] ----> PAM-4 mapper ---- tx_sym[3:0] (signed) ----> CHANNEL
+                                          ^                                     |
+                                          |                                     +--> tx_bits_ref[1:0]
+                                 C0=00, C1=01, C2=11, C3=10
+
+Control and output registers may be implemented inside tx_top/mapper; they do not require extra processing blocks here.
+The MUX output is the actual Gray label carried by the symbol. The PRBS select value is a control signal.
+
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| ID    | Submodule                 | Function                               | Inputs / value range                            | Outputs / value range                           | Recommended representation            |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| TX01  | prbs_selector             | One PRBS/LFSR generates a              | clk, rst_n: logic {0,1}. Reset seed: nonzero    | sel[1:0]: unsigned 0..3 (00/01/10/11). Proposed | State: unsigned N bits, draft 7 bits. |
+|       |                           | pseudo-random 2-bit MUX select code.   | unsigned 1..(2^N-1). Draft N=7: seed 1..127,    | sel=state[1:0]. Internal state: N-bit nonzero   | Select: unsigned 2 bits. Clock/reset: |
+|       |                           | Use the current state and advance once | default 7'h7F. Seed is a reset-time             | unsigned.                                       | 1 bit. No fractional bits.            |
+|       |                           | every active clock.                    | configuration.                                  |                                                 |                                       |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| TX02  | gray_code_mux             | A combinational 4:1 MUX selects ONE    | sel[1:0]: unsigned 0..3. Constant inputs:       | gray_code[1:0]: one of 00/01/11/10. sel=00->00, | Select and Gray data: 2-bit logic     |
+|       |                           | fixed Gray code from the current       | C0=2'b00, C1=2'b01, C2=2'b11, C3=2'b10.         | 01->01, 10->11, 11->10.                         | vectors. No fractional bits.          |
+|       |                           | select value. All four data inputs are |                                                 |                                                 |                                       |
+|       |                           | constants.                             |                                                 |                                                 |                                       |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| TX03  | pam4_gray_mapper          | Map one selected Gray code to one      | clk, rst_n: {0,1}. gray_code[1:0]: 00/01/11/10. | tx_sym[3:0]: signed integer {-3,-1,+1,+3},      | Amplitude: signed 4-bit integer       |
+|       |                           | PAM-4 amplitude. Register the symbol   |                                                 | encoded 1101/1111/0001/0011.                    | (Q4.0, zero fractional bits). Gray    |
+|       |                           | and selected Gray reference together   |                                                 | tx_bits_ref[1:0]=selected Gray code for the     | reference: 2 bits. All four           |
+|       |                           | every active clock.                    |                                                 | same symbol.                                    | amplitudes are exact.                 |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+
+1.1 SELECT -> GRAY -> PAM-4 TRUTH TABLE
+
+  sel[1:0]   Selected Gray   Signed amplitude   tx_sym[3:0] bits   4-bit hex
+  00         00              -3                 1101               D
+  01         01              -1                 1111               F
+  10         11              +1                 0001               1
+  11         10              +3                 0011               3
+
+Example: sel=10 chooses Gray=11, so the mapper emits signed +1 (bits 0001).
+For that symbol, tx_bits_ref must be 11 (the selected Gray word), not 10 (the MUX select code).
+The mapper consumes the selected Gray code directly; do not apply another binary-to-Gray conversion after the MUX.
+
+1.2 REPRESENTATION / VALUE RANGES
+- PRBS state and seed: unsigned N-bit vectors; the complete LFSR state must be nonzero.
+- Proposed N=7: state/seed range 1..127; seed default 7'h7F.
+- Proposed select extraction: sel=state[1:0]. All four sel values, including 00, are legal even though the full state cannot be zero.
+- sel and gray_code: 2-bit logic vectors; no fixed-point fractional bits.
+- Clock and reset: 1-bit logic. No generation-enable or per-symbol handshake ports in this continuous-flow baseline.
+- tx_sym: signed 4-bit two's-complement integer; Q4.0 notation here includes the sign bit among the four integer bits. No fractional bits.
+- Stored signed integer equals the PAM-4 amplitude directly. TX does not multiply by 4096.
+- The complete signed 4-bit representable range is -8..+7. The legal PAM-4 output set is only {-3,-1,+1,+3}.
+- LSB = 1. Negative amplitudes use two's-complement encoding.
+- All four PAM-4 levels are represented exactly, without rounding. Other representable integers are not transmitted levels during normal operation.
+- Proposed amplitude port declaration: output logic signed [3:0] tx_sym.
+- Data sent to Channel is this 4-bit signed symbol each clock; the two-bit Gray reference is for measurement.
+
+1.3 CONTINUOUS ONE-SYMBOL-PER-CLOCK CONTRACT
+- TX, Channel and the RX input boundary use one common clock.
+- During continuous operation, each clock carries one new symbol, including when adjacent symbols have equal amplitudes.
+- Use the current PRBS select code to select one Gray word and map one PAM-4 symbol, then advance the LFSR once.
+- Freeze the exact current-state/first-output convention with reference vectors later. No complete PRBS period is stored.
+- The mapper registers tx_sym and its matching tx_bits_ref together each clock.
+- Initialize the PRBS from a nonzero seed at reset. The default is 7'h7F for draft N=7; seed configuration stays fixed during a run.
+- No runtime pause, seed reload or backpressure is part of this baseline. Restart the chain through reset when restarting the sequence.
+- Channel samples one TX amplitude each clock. Measurement/training uses the corresponding Gray and symbol references.
+- Reset and pipeline-fill cycles are startup transients. A top-level startup counter can delay measurement/training until real samples arrive.
+- Reference alignment to RX belongs to the later measurement/training design and must follow the fixed pipeline latency.
+- Clock frequency, exact TX/Channel pipeline latencies and the first usable sample cycle remain to be frozen.
+
+Illustrative consecutive symbol clocks (these values demonstrate mapping; they are not a claimed PRBS sequence):
+  Clock k:   sel=00 -> Gray=00 -> tx_sym=-3
+  Clock k+1: sel=11 -> Gray=10 -> tx_sym=+3
+  Clock k+2: sel=10 -> Gray=11 -> tx_sym=+1
+  Clock k+3: sel=01 -> Gray=01 -> tx_sym=-1
+
+1.4 TX -> CHANNEL FORMAT BOUNDARY
+- TX sends signed 4-bit integer tx_sym. The selected Channel output is signed 8-bit Q4.4.
+- TX does not scale its symbol. Conversion to fractional arithmetic is inside the Channel.
+- If the Channel starts with Q4.4 arithmetic, sign-extend tx_sym to at least 8 bits first, then shift left by 4.
+- Q4.4 examples: -3 -> stored -48 / hex D0; -1 -> -16 / F0; +1 -> +16 / 10; +3 -> +48 / 30.
+- If wider internal Q4.12 arithmetic is retained, sign-extend to that width and shift left by 12 internally, then round to Q4.4 at the output.
+- Always widen/sign-extend before a shift. Sign extension alone does not add fractional scaling.
+- Channel internal coefficient widths and intermediate arithmetic widths remain for the next design steps.
+
+1.5 ITEMS TO FREEZE NEXT
+- Confirm the order N for the single PRBS source; N=7 is the current draft choice.
+- Freeze polynomial, state shift direction, feedback indexes, seed, selected state bits and first-output convention together.
+- Check the resulting symbol distribution/correlation with agreed reference vectors.
+- Freeze reset-time seed initialization, pipeline timing and the startup counting rule using a short clock-by-clock example.
+- Existing RTL is still an NRZ/single-bit placeholder with DW=12; implementation changes are outside this TXT-only step.
+
+2. CHANNEL - SELECTED EXTERNAL DATA WIDTHS
+Selected data interface: signed 4-bit integer input -> signed 8-bit Q4.4 output.
+Internal submodules, coefficient widths and intermediate arithmetic widths are not yet frozen.
+
+  TX signed4 integer symbol -> CHANNEL (ISI + noise) -> RX signed8 Q4.4 sample
+
+The eight output bits are TOTAL bits: 1 sign + 3 other integer bits + 4 fractional bits.
+This selection reduces output precision relative to the unchanged Python model's 16-bit Q4.12.
+
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| Signal            | Direction | Bits  | Representation               | Value range                                          | Meaning                                          |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_sym[3:0]        | Input     | 4     | Signed integer / Q4.0        | Legal levels: {-3,-1,+1,+3}; stored integer equals   | One new TX symbol on each clock during           |
+|                   |           |       |                              | amplitude.                                           | continuous operation.                            |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_clk             | Input     | 1     | Clock                        | {0,1}; frequency not yet selected.                   | Common synchronous clock.                        |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_rst_n           | Input     | 1     | Active-low reset             | {0,1}                                                | Initialize Channel sample history and pipeline   |
+|                   |           |       |                              |                                                      | registers on reset.                              |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| o_r[7:0]          | Output    | 8     | Signed fixed-point Q4.4      | Representable real range: -8 .. +7.9375. Stored      | One impaired sample r[n] each clock after        |
+|                   |           |       |                              | integer: -128 .. +127. LSB=0.0625.                   | pipeline fill, including ISI and noise.          |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+
+2.1 OUTPUT REPRESENTATION / QUANTIZATION
+- Real value = signed stored integer / 16. LSB = 1/16 = 0.0625.
+- Output signed integer range: -128..+127. Output real range: -8..+7.9375.
+- Example: +0.5 is stored as integer +8 / hex 08; -0.5 is stored as -8 / hex F8.
+- The ISI profile r_clean[n]=s[n]+0.5*s[n-1] can create half-integers; these are exactly representable in Q4.4.
+- Injected noise is rounded to the selected output grid; its fine details below one LSB cannot all be retained.
+- If internal arithmetic has more than four fractional bits, round to nearest with half ties away from zero, then saturate to signed 8 bits.
+- For an internal integer r_int with F>=4 fractional bits: o_r_int = clip(round_away(r_int / 2^(F-4)), -128, 127).
+- If an internal result is already in F=4 units, do not apply an additional fractional shift.
+- Use wider intermediate products/sums to preserve the computation until the selected final rounding/saturation point.
+- Proposed amplitude output declaration: output logic signed [7:0] o_r.
+
+2.2 CURRENT-PROFILE VALUE BOUNDS
+- TX input legal set: {-3,-1,+1,+3}.
+- Clean ISI sample for h0=1,h1=0.5: [-4.5,+4.5].
+- The saved higher-precision model's 12-lane CLT at fixed sigma_Q=0.25 bounds the injected noise by [-1.499755859375,+1.49951171875].
+- The corresponding pre-output-quantization sample bound is [-5.999755859375,+5.99951171875].
+- Rounding those samples to Q4.4 gives a conservative output bound [-6,+6], or signed output integers [-96,+96].
+- These configuration bounds fit within the selected Q4.4 format [-8,+7.9375].
+- Exact ranges will be revisited if the Channel internal/noise precision or profile is changed.
+- The Python model and its measured BER remain at Q4.12. BER/equalization accuracy at the new Q4.4 boundary has not yet been measured; this step edits the design document only.
+
+2.3 CONTINUOUS FLOW / FIXED TIMING BOUNDARY
+- The Channel data interface has only i_sym[3:0] and o_r[7:0], alongside the required common clock and reset.
+- No per-symbol valid input or output is used. Every clock during steady operation represents one new symbol index n.
+- Advance Channel symbol-history memory and noise generation once per symbol clock after reset.
+- Keep a fixed pipeline latency L_CH, with no stalls. Exact latency is still to be specified.
+- After pipeline fill, produce one o_r sample per clock in the same order as the input symbols.
+- RX receives signed Q4.4 o_r[7:0] and must support one sample per clock in this continuous-flow design.
+- Recommended RX coefficient/internal formats are specified in section 3; the external input remains signed8 Q4.4.
+- Count startup cycles at the top level to begin measurement/training after pipeline fill; do not interpret reset/fill values as transmitted PAM-4 symbols.
+- Align measurement/training references with the fixed Channel and RX latencies and the equalizer's symbol delay. Specify these separately when RX is defined.
+- Coefficient/noise configuration ports will be decided when the Channel submodules are defined; these do not qualify individual data samples.
+
+3. RX - CONTINUOUS ADAPTIVE FFE / DFE DESIGN PROPOSAL
+Input: signed8 Q4.4, one Channel sample every clock after pipeline fill.
+Main output: one recovered signed4 PAM-4 symbol and its two Gray bits per clock after RX fill.
+These are recommended internal formats, not yet an RTL implementation or a verified Q4.4 performance result.
+Notation: signedW Ff means W TOTAL bits including sign, with f fractional bits; Q4.12 here is signed16 F12.
+
+3.1 RX BLOCK FLOW / CONNECTIONS
+Default FFE+DFE path is shown below; independent bypass mux behavior and mode-dependent D are specified in 3.10.
+
+  Channel o_r[7:0]
+        |
+        v
+  [Input scaling + 2 sample delays] -- x[n] --> [FFE: 3 taps] -- f[n] --> [DFE subtraction] -- y[n] --> [PAM-4 slicer] -- d_hat[n] --> [Gray decoder]
+                 |                                ^                         ^                   |                     |                    |
+                 |                                | w[n]                    | b0[n]*d_prev[n]    |                     |                    +--> rx_bits[1:0]
+                 |                          [FFE coefficient z^-1]     [DFE feedback multiply]  |                     +--> rx_sym[3:0]
+                 |                                ^                         ^                   |                     |
+                 |                                |                         |                   |                     v
+                 +--> [LMS_FFE: 3 updates] --------+                         +---------- d_prev[n] <-- [Decision z^-1]
+                            ^                                                                  |          |
+                            | shared psi[n],g[n]                                                |          +--> [LMS_DFE: 1 update]
+                            |                                                                  |                         |
+                      [Error clip + DD gate] <--- e[n] --- [C1: d_des[n] - y[n]] <---------------+                         v
+                            |                                   ^                                            [DFE coefficient z^-1]
+                            +--> same psi[n],g[n] --> LMS_DFE     |                                                        |
+                                                        [Training / DD selector]                               b0[n] --> feedback multiply
+                                                          ^                 ^
+                                                          |                 +--- current d_hat[n] (DD mode)
+  TX symbol reference --> [Reference alignment: path latency + mode-selected D] (training mode)
+
+- FFE and DFE LMS are separate update blocks, outside the forward FFE -> DFE -> slicer path.
+- The shared error comparator takes y BEFORE the slicer; the DD desired value is the CURRENT slicer decision.
+- Decision z^-1 stores the PREVIOUS decision. Both the DFE cancellation and LMS_DFE use that same delayed decision.
+- Coefficient z^-1 stores each updated coefficient state for the next symbol; it is not an extra error delay.
+- The two FFE history delays provide r[n-1] and r[n-2] to both the FFE and LMS_FFE.
+- Four signed16 F12 configuration pins + i_cfg_load feed the FFE/DFE coefficient state registers (RX11), not the sample input.
+- i_adapt_en permits LMS writes only for non-bypassed branches; all modes keep one-sample-per-clock data flow.
+- Add an FFE output mux (filtered f versus current r) and a DFE feedback mux (b0*d_prev versus zero); see the four-mode table in 3.10.
+- Training and BER reference paths are on-chip testbench side paths, separate from the Channel data input.
+
+3.2 RX DATAPATH SUBMODULES
+
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| ID    | Submodule                 | Function                               | Inputs / value range                            | Outputs / value range                           | Recommended representation            |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX01  | rx_input_history          | Convert Channel samples to the         | i_r[7:0]: signed Q4.4, representable            | x[n]={r[n],r[n-1],r[n-2]}; same real range as   | Input: signed8 F4. Each internal      |
+|       |                           | internal scale. Keep two sample delays | [-8,7.9375]; current-profile bound [-6,+6].     | input, with zero history on reset.              | sample: signed16 F12. Sign-extend to  |
+|       |                           | for the 3-tap FFE and its LMS branch.  | clk, rst_n.                                     |                                                 | 16 bits, then <<8. Conversion is      |
+|       |                           |                                        |                                                 |                                                 | exact.                                |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX02  | ffe_mac_3tap              | Compute f[n]=sum(w_k*x_k). Output mux  | 3 samples x_k: signed16 F12. 3 coefficients     | f_sel[n]: signed18 F12; normal FFE profile      | Each raw product: signed32 F24.       |
+|       |                           | selects f[n] normally or current r[n]  | w_k: signed16 F12 in [-1.25,+1.25]. Latched     | bound [-22.5,+22.5], bypass bound [-6,+6].      | Arithmetic >>12 then saturate each    |
+|       |                           | when FFE is bypassed. Keep x[n]        | ffe_bypass: 1 bit.                              | Bypass passes r[n], not r[n-1].                 | term to signed16 F12; sum in signed18 |
+|       |                           | available to LMS_FFE.                  |                                                 |                                                 | F12.                                  |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX03  | dfe_cancel_1tap           | Compute v=b0*d_prev. Use v_sel=0 when  | f_sel[n]: signed18 F12. b0: signed16 F12 in     | v_sel: [-2.25,+2.25], or exactly 0 in bypass.   | Lift d_prev to signed16 F12. Product  |
+|       |                           | DFE is bypassed, otherwise v_sel=v.    | [-0.75,+0.75]. d_prev: {-3,-1,+1,+3}, startup   | y: signed16 F12, range [-8,7.999755859375];     | signed32 F24 -> signed16 F12.         |
+|       |                           | Output y=sat16(f_sel-v_sel).           | 0. Latched dfe_bypass: 1 bit.                   | feeds slicer and comparator.                    | Subtract in signed19 F12, then        |
+|       |                           |                                        |                                                 |                                                 | saturate y to signed16 F12.           |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX04  | pam4_slicer               | Compare y to -2, 0, +2. Match the      | y[n]: signed16 F12, representable               | d_hat[n]: signed integer {-3,-1,+1,+3}. Feeds   | Output signed4 integer Q4.0.          |
+|       |                           | current model: exact threshold ties    | [-8,7.999755859375].                            | recovered-symbol output, Gray decoder, DD       | Threshold stored integers: -8192, 0,  |
+|       |                           | choose the lower level.                |                                                 | selector and decision memory.                   | +8192 in F12.                         |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX05  | decision_delay_z1         | Store exactly one previous slicer      | d_hat[n]: signed4 integer {-3,-1,+1,+3}; clk,   | d_prev[n]=d_hat[n-1]: {-3,-1,+1,+3}; 0 only for | One signed4 register. Convert to      |
+|       |                           | decision. Provide d_hat[n-1] to DFE    | rst_n.                                          | reset/startup history.                          | signed16 F12 by sign extension then   |
+|       |                           | feedback and LMS_DFE.                  |                                                 |                                                 | <<12 wherever fractional              |
+|       |                           |                                        |                                                 |                                                 | multiplication is needed.             |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX06  | pam4_gray_decoder         | Recover the transmitted Gray label     | d_hat[n]: signed4 integer {-3,-1,+1,+3}.        | rx_bits[1:0]: -3->00, -1->01, +1->11, +3->10.   | Recovered bits: unsigned2 logic       |
+|       |                           | from the decided amplitude. Keep       |                                                 | rx_sym[3:0]=d_hat[n].                           | vector. Recovered symbol: signed4     |
+|       |                           | output bits and symbol aligned.        |                                                 |                                                 | Q4.0. No fractional rounding.         |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+
+3.3 RX TRAINING / ERROR / LMS SUBMODULES
+Selected adaptation baseline: robust_proj, constant mu=0.0005, matching the current model's principal demonstrated case.
+Other model variants and Polyak averaging are separate options; their hardware is not included in this initial RX proposal.
+
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| ID    | Submodule                 | Function                               | Inputs / value range                            | Outputs / value range                           | Recommended representation            |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX07  | training_ref_control      | Align TX reference to the current EQ   | TX symbol reference: signed4, {-3,-1,+1,+3}.    | d_des[n]: reference s[n-D] during training,     | Reference alignment registers:        |
+|       |                           | output. Choose known reference during  | d_hat[n]: same set. Startup count, fixed        | d_hat[n] in decision-directed mode, 0 during    | signed4. d_des at comparator:         |
+|       |                           | training and current slicer decision   | latency, mode-dependent D, N_train=3000.        | initial algorithmic startup. train_mode,        | signed16 F12. Training count:         |
+|       |                           | afterwards.                            |                                                 | adapt_step: internal control bits.              | unsigned12 for 0..3000, then          |
+|       |                           |                                        |                                                 |                                                 | saturate.                             |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX08  | error_clip_gate           | Shared comparator C1:                  | d_des, y: signed16 F12. Clip=2.5; DD gate=1.5.  | e_raw: signed16 F12. psi=clip(e_raw,-2.5,+2.5). | Subtract in signed17 F12 before       |
+|       |                           | e=sat16(d_des-y). For robust_proj,     | Internal training/startup control.              | g: update allowed; during DD require            | sat16. psi: signed16 F12. Clip        |
+|       |                           | clip the error and gate adaptation     |                                                 | abs(e_raw)<=1.5. Same psi,g go to BOTH LMS      | integer=10240; gate integer=6144.     |
+|       |                           | using the original e.                  |                                                 | blocks.                                         | Magnitude/absolute operation must     |
+|       |                           |                                        |                                                 |                                                 | handle -32768.                        |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX09  | lms_ffe_3tap              | For each tap compute                   | x[n]: 3 x signed16 F12, same vector used by FFE | 3 next accumulator states, each in              | Keep coefficient accumulators         |
+|       |                           | delta_w=mu*psi*x_k, then               | for y[n]. psi: signed16 F12, +/-2.5. g: 1 bit.  | [-1.25,+1.25]. Hold states unless i_adapt_en && | signed40 F20. Full mu*psi*x product:  |
+|       |                           | A_w_next=project(A_w+delta_w). No      | A_w: 3 x signed40 F20. mu: F20.                 | g && !ffe_bypass. Config load has write         | signed72 F44; round/shift by 24 to    |
+|       |                           | independent slicer/error inside this   |                                                 | priority.                                       | F20. Add in signed41 F20 before       |
+|       |                           | block.                                 |                                                 |                                                 | saturation/projection.                |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX10  | lms_dfe_1tap              | Compute delta_b=mu*psi*d_prev, then    | d_prev: signed16 F12, {-3,-1,+1,+3} plus        | Next accumulator state in [-0.75,+0.75]. Hold   | Accumulator signed40 F20. Full update |
+|       |                           | A_b_next=project(A_b-delta_b). The     | startup 0; psi and g shared with LMS_FFE. A_b:  | state unless i_adapt_en && g && !dfe_bypass.    | product signed72 F44 -> rounded       |
+|       |                           | MINUS sign follows y=f-b*d_prev.       | signed40 F20. mu: F20.                          | Config load has write priority.                 | signed40 F20. Subtract in signed41    |
+|       |                           |                                        |                                                 |                                                 | F20 before saturation/projection.     |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+| RX11  | coefficient_state_z1      | Store coefficient states and two       | Four signed16 F12 config taps; i_ffe_bypass,    | w: 3 x signed16 F12; b0: signed16 F12.          | State: 4 x signed40 F20. Config:      |
+|       |                           | bypass mode bits. Atomically load      | i_dfe_bypass; i_cfg_load, i_adapt_en; LMS next  | ffe_bypass,dfe_bypass: latched 1-bit flags.     | clamp F12, sign-extend to 40 bits,    |
+|       |                           | config on i_cfg_load. Permit LMS       | states, clk, rst_n.                             | Reset w=[0,0.75,0], b0=0, both flags=0.         | then <<8. Visible taps: round F20 ->  |
+|       |                           | writes only for enabled, non-bypassed  |                                                 |                                                 | F12 by 8 bits, ties away from zero;   |
+|       |                           | branches.                              |                                                 |                                                 | sat16.                                |
++-------+---------------------------+----------------------------------------+-------------------------------------------------+-------------------------------------------------+---------------------------------------+
+
+3.4 RECOMMENDED RX TOP-LEVEL INTERFACE
+No per-symbol handshake ports. All sample processing is synchronous with the common clock.
+Coefficient config pins and both bypass config pins are sampled only on i_cfg_load; this control does not qualify or pause sample data.
+
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| Signal            | Direction | Bits  | Representation               | Value range                                          | Meaning                                          |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_clk             | Input     | 1     | Clock                        | {0,1}; common TX/Channel/RX clock.                   | One sample per clock during steady operation.    |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_rst_n           | Input     | 1     | Active-low reset             | {0,1}                                                | Initialize sample history, decision memory,      |
+|                   |           |       |                              |                                                      | coefficient states and startup/training          |
+|                   |           |       |                              |                                                      | counters.                                        |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_r[7:0]          | Input     | 8     | Signed Q4.4                  | Representable [-8,+7.9375]; selected-profile bound   | Direct connection from Channel o_r[7:0].         |
+|                   |           |       |                              | [-6,+6].                                             |                                                  |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_tx_ref[3:0]     | Input     | 4     | Signed integer Q4.0          | {-3,-1,+1,+3}                                        | Known TX symbol side path for initial training;  |
+|                   |           |       |                              |                                                      | align internally. Not additional Channel data.   |
+|                   |           |       |                              |                                                      | Unused as desired data after training.           |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_cfg_ffe0[15:0]  | Input     | 16    | Signed Q4.12                 | Allowed real [-1.25,+1.25]; F12 integers             | Load w0 multiplying r[n]. Sample with the other  |
+|                   |           |       |                              | [-5120,+5120]; step 1/4096.                          | taps on i_cfg_load.                              |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_cfg_ffe1[15:0]  | Input     | 16    | Signed Q4.12                 | Allowed real [-1.25,+1.25]; F12 integers             | Load w1 multiplying r[n-1].                      |
+|                   |           |       |                              | [-5120,+5120]; step 1/4096.                          |                                                  |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_cfg_ffe2[15:0]  | Input     | 16    | Signed Q4.12                 | Allowed real [-1.25,+1.25]; F12 integers             | Load w2 multiplying r[n-2].                      |
+|                   |           |       |                              | [-5120,+5120]; step 1/4096.                          |                                                  |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_cfg_dfe0[15:0]  | Input     | 16    | Signed Q4.12                 | Allowed real [-0.75,+0.75]; F12 integers             | Load b0 multiplying d_hat[n-1]; y=f-b0*d_prev.   |
+|                   |           |       |                              | [-3072,+3072]; step 1/4096.                          |                                                  |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_ffe_bypass      | Input     | 1     | Synchronous mode config      | 0: use 3-tap FFE; 1: pass current r[n].              | Latched on i_cfg_load. Bypassing FFE also        |
+|                   |           |       |                              |                                                      | freezes its LMS state writes, while preserving   |
+|                   |           |       |                              |                                                      | coefficients.                                    |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_dfe_bypass      | Input     | 1     | Synchronous mode config      | 0: subtract DFE feedback; 1: feedback contribution   | Latched on i_cfg_load. Bypassing DFE freezes its |
+|                   |           |       |                              | is zero.                                             | LMS state writes; slicer/decision history keep   |
+|                   |           |       |                              |                                                      | advancing.                                       |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_cfg_load        | Input     | 1     | Synchronous load control     | {0,1}; pulse high for one clock to load.             | Atomically latch all four coefficient inputs and |
+|                   |           |       |                              |                                                      | both bypass flags; overrides LMS writes. Does    |
+|                   |           |       |                              |                                                      | not pause the data stream.                       |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| i_adapt_en        | Input     | 1     | Adaptation control           | 0: fixed coefficients; 1: LMS enabled, subject to    | 0 holds coefficients; 1 enables LMS only for     |
+|                   |           |       |                              | startup and error gate.                              | active branches, subject to startup/error gate.  |
+|                   |           |       |                              |                                                      | Data keeps flowing.                              |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| o_sym[3:0]        | Output    | 4     | Signed integer Q4.0          | {-3,-1,+1,+3}                                        | Recovered symbol, one per clock after fill.      |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+| o_bits[1:0]       | Output    | 2     | Gray label                   | 00,01,11,10                                          | Recovered Gray word aligned with o_sym; route to |
+|                   |           |       |                              |                                                      | BERT.                                            |
++-------------------+-----------+-------+------------------------------+------------------------------------------------------+--------------------------------------------------+
+
+3.5 VALUE RANGES / FIXED-POINT RATIONALE
+- RX input Q4.4 -> Q4.12 conversion: r_internal_int = sign_extend_16(i_r) << 8. This retains the received value exactly; it does not recover discarded Channel precision.
+- Keep visible coefficients at signed16 F12 and update states at signed40 F20 so small LMS increments can accumulate.
+- mu=0.0005 rounds to stored F20 integer 524, i.e. mu_eff=524/1048576=0.000499725341796875.
+- A four-fractional-bit mu would round to zero. The 8-bit Channel interface does not imply 8-bit coefficients or LMS arithmetic.
+- Under |r|<=6 and |w_k|<=1.25, each untruncated FFE product has |w_k*r|<=7.5; three terms conservatively sum within [-22.5,+22.5].
+- For any representable Channel input, each model-style post-shift/saturated product is signed16 F12; three such terms fit signed18 F12, range [-32,31.999755859375].
+- With |b0|<=0.75 and |d_prev|<=3, feedback lies within [-2.25,+2.25]. Before final saturation the current-profile combined bound is [-24.75,+24.75].
+- y is deliberately saturated to signed16 F12, range [-8,7.999755859375], matching the model's output arithmetic structure. Its actual observed range is narrower, not a guaranteed design bound.
+- Before error saturation, d_des-y lies within [-10.999755859375,+11]; use signed17 F12, then saturate to signed16 F12 before clip/gate.
+- psi is limited to [-2.5,+2.5]. Gate g uses abs(e_raw), not abs(psi); threshold ties abs(e_raw)=1.5 allow a DD update.
+- FFE update magnitude before rounding is <=mu_eff*2.5*6=0.007495880126953125 in the selected profile; DFE update magnitude <=mu_eff*2.5*3=0.0037479400634765625.
+- F20 projection limits: FFE accumulator integers +/-1310720 (real +/-1.25); DFE accumulator integers +/-786432 (real +/-0.75).
+- Initial visible FFE tap integers [0,3072,0] represent [0,0.75,0]; initial F20 states [0,786432,0]. DFE starts at zero.
+- For raw LMS product P_int=mu_int*psi_int*x_int (or d_prev_int), delta_int=sat40(round_away(P_int/2^24)); do not prematurely reduce psi or x to F4.
+- Arithmetic right shift of negative FFE/feedback products rounds toward negative infinity, as in the Python model. LMS increments and F20-to-F12 taps use round-to-nearest with ties away from zero.
+- Recommended widths retain the model's internal scale, while the changed Channel boundary and PRBS source still require later numerical validation. No Python or RTL changes are made here.
+
+3.6 SLICER / GRAY OUTPUT RULES
+
+  Pre-slicer y interval     Output symbol   signed4 bits   Recovered Gray
+  y <= -2                  -3              1101           00
+  -2 < y <= 0              -1              1111           01
+   0 < y <= +2             +1              0001           11
+   y > +2                  +3              0011           10
+
+- The recovered symbol is a signed integer, not Q4.4. Its Gray word matches the TX mapper table exactly.
+- Internal y=0 slices to -1 under the lower-tie rule. Hold off measurement during reset/fill so this startup result is not counted as a received symbol.
+
+3.7 SYMBOL INDEX / ADAPTATION / FIXED TIMING CONTRACT
+- Let n be the one-based RX sample index after the first actual Channel sample reaches the RX input; startup pipeline clocks are excluded from this count.
+- For each n, form x[n]=[r[n],r[n-1],r[n-2]], read current w[n],b0[n], and use d_prev[n]=d_hat[n-1]. Histories before the first sample are zero.
+- Compute FFE -> DFE -> y[n] -> current d_hat[n], then compute the common error and both coefficient updates for that SAME sample.
+- Default full-EQ/FFE-only alignment is D=1: d_hat[n] targets s[n-1]. FFE-bypassed modes use D=0 and target s[n]. D is separate from fixed RTL pipeline latency; configured FFE taps must match the selected target delay.
+- Use the mode-selected D: during n<=D use d_des=0; for D<n<=3000 use aligned known reference s[n-D]; after n>3000 use current d_hat[n].
+- After reset/fill, run the model-style update during training and apply the error gate only in DD mode. Startup holdoff is a local control policy, not a stream handshake.
+- Coefficient states updated from sample n become available for sample n+1, unless a config load overrides the write. Reset initializes visible w=[0,0.75,0], b0=0.
+- Coefficient state write priority is reset > config load > enabled/gated LMS update for an active branch > hold. Config and adaptation controls never stall the sample stream.
+- During a gate skip retain coefficient states while input history, slicer decisions and decision memory continue advancing every clock.
+- Pipeline registers in the forward path require matching delays for LMS regressors, y, d_hat, training references and output Gray bits.
+- The DFE decision loop must return exactly the previous SYMBOL's decision. Arbitrarily adding registers inside that loop changes the algorithm, even if output latency stays fixed.
+- Likewise, extra LMS update latency changes when new taps are used. Exact model-style per-symbol updates require the update/state loop to meet the symbol period.
+- Freeze a clock-by-clock schedule and timing target before RTL: one-symbol-per-clock operation is the requirement, not a timing result already achieved.
+- Use top-level startup counting and fixed latency alignment. There are no idle sample clocks, backpressure or per-symbol valid ports in this baseline.
+
+3.8 WHERE TO COMPARE / MEASURE
+- C1 (inside RX): compare selected desired amplitude d_des[n] against pre-slicer y[n]. This produces LMS error, not BER.
+- C2 (external BERT): compare o_bits against the corresponding delayed TX Gray reference; compare o_sym against the same TX symbol for SER.
+- Delay TX references by the implemented TX-to-decision path latency and mode-selected algorithmic D (1 for default FFE-active modes, 0 for FFE-bypassed modes); use an explicit symbol-index schedule to avoid double-counting delays.
+- Begin BER/SER counting after training and pipeline fill. Keep the TX reference delay line running continuously so the first measured decision is aligned.
+- Optional C0 baseline (external monitor): slice the raw Channel sample and compare against its matching TX symbol with algorithmic D=0, on the same retained TX-symbol interval as C2.
+- BERT counter widths, reporting, optional raw slicer and frozen-tap/Polyak experiments are outside the RX datapath table and will be specified later.
+
+3.9 COEFFICIENT CONFIGURATION / LOAD CONTRACT
+- Config taps are four separate signed16 Q4.12 inputs. Stored integer equals round(real_coefficient*4096); the complete format range is [-8,7.999755859375].
+- Current robust_proj operational bounds still apply: clamp FFE configs to stored integers [-5120,+5120] and DFE config to [-3072,+3072] at load.
+- Keep all four coefficient values and both bypass inputs stable before the active edge. Pulse i_cfg_load=1 for one clock to latch them atomically. Changing these inputs with i_cfg_load=0 has no effect.
+- Configuration uses the common i_clk domain. A future asynchronous switch/UART/software interface must synchronize and stage the complete coefficient word before issuing the load pulse.
+- Convert each clamped F12 config integer C to the corresponding F20 state A=sign_extend_40(C)<<8. Load the actual adaptation accumulators, so the next LMS update continues from the configured coefficients.
+- On reset load default states w=[0,0.75,0], b0=0, ffe_bypass=0, dfe_bypass=0, regardless of i_cfg_load. To apply external configs, pulse i_cfg_load after reset is released, preferably before the first useful sample.
+- On a config-load edge, override the normal LMS state write for all four taps; do not add a stale LMS delta to the freshly loaded values. Retire/flush any pending coefficient writes if a later implementation pipelines the LMS update.
+- The loaded taps become visible after the load edge and apply at the next coefficient-read step; decisions already in flight keep their original coefficient association. Freeze the exact edge/sample mapping with the RTL pipeline schedule.
+- With i_adapt_en=0, hold all coefficient accumulators while allowing config loads; this is fixed-coefficient operation.
+- With i_adapt_en=1, resume LMS updates only for non-bypassed branches from current/loaded states, subject to startup and DD gate. Bypassed branch states hold; loaded active coefficients may change on subsequent samples.
+- Suggested manual-load sequence: drive all config taps and both bypass values, set i_adapt_en=0, pulse i_cfg_load for one clock, then leave i_adapt_en=0 for fixed taps or set it to 1 to adapt active branches.
+- Config loading does not reset sample history, decision history or training counters and does not pause TX/Channel/RX. A deliberate new training run uses the chain reset/startup procedure and then reloads the desired taps.
+- i_cfg_load is a coefficient-write strobe, not a per-symbol valid flag. Data throughput stays one symbol per clock.
+
+  Example config set          FFE0       FFE1       FFE2       DFE0       Meaning
+  Reset-equivalent values     16'h0000   16'h0C00   16'h0000   16'h0000   w=[0,0.75,0], b0=0
+  Ideal noiseless profile     16'h0000   16'h1000   16'h0000   16'h0800   w=[0,1,0], b0=+0.5; h=[1,0.5], D=1
+
+- The ideal example is the analytical cancellation target for this profile, not a claim that finite-length adaptive/noisy runs end at exactly these coefficients.
+
+3.10 INDEPENDENT FFE / DFE BYPASS MODES
+Each block has its own active-high bypass flag: 0=process through that block, 1=bypass it.
+The two input flags are latched together with the four coefficient inputs on i_cfg_load.
+
++----------------+----------------+---------------------+---------------------------------------------------+-------------------------+--------------------------------------------+
+| FFE bypass     | DFE bypass     | Mode                | Signal at slicer input (before final sat16)       | Target delay D          | LMS branches allowed if i_adapt_en=1       |
++----------------+----------------+---------------------+---------------------------------------------------+-------------------------+--------------------------------------------+
+| 0              | 0              | FFE + DFE           | f[n] - b0*d_hat[n-1]                              | 1 (default)             | FFE and DFE; subject to common g           |
++----------------+----------------+---------------------+---------------------------------------------------+-------------------------+--------------------------------------------+
+| 0              | 1              | FFE only            | f[n]                                              | 1 (default)             | FFE only; hold DFE accumulators            |
++----------------+----------------+---------------------+---------------------------------------------------+-------------------------+--------------------------------------------+
+| 1              | 0              | DFE only            | r[n] - b0*d_hat[n-1]                              | 0                       | DFE only; hold FFE accumulators            |
++----------------+----------------+---------------------+---------------------------------------------------+-------------------------+--------------------------------------------+
+| 1              | 1              | Both bypassed       | r[n]                                              | 0                       | Neither; hold all accumulators             |
++----------------+----------------+---------------------+---------------------------------------------------+-------------------------+--------------------------------------------+
+
+- r[n] above is the current Channel sample converted exactly to F12. f[n] is the existing wide 3-tap FFE sum.
+- Forward equations: f_sel = ffe_bypass ? widen18(r[n]) : f[n]; v_sel = dfe_bypass ? 0 : b0*d_prev; y=sat16(f_sel-v_sel).
+- Keep normal model-style feedback product truncation/saturation before subtraction. The bypass muxes do not change the chosen internal formats.
+- FFE bypass forwards current r[n], not the middle FFE tap r[n-1]; therefore its symbol target changes from the default D=1 to D=0.
+- Balance bypass and processing paths with matching pipeline registers, so the physical RX latency is identical in all four modes. This does not remove the separate mode-dependent symbol alignment D.
+- Slicer and Gray decoding remain active even when both equalizers are bypassed; recovered outputs are raw Channel decisions in that mode.
+- Keep the two input-history delays and decision z^-1 running every sample in every mode. DFE re-enable uses the immediately previous decision, not a stale pre-bypass value.
+- Effective LMS writes: update_ffe=i_adapt_en && g && !ffe_bypass; update_dfe=i_adapt_en && g && !dfe_bypass, excluding config-load edges and startup holdoff.
+- Bypass holds the corresponding F20 accumulators without overwriting or zeroing them. A config load still deliberately replaces all four tap states, including those of bypassed branches.
+- A branch that is re-enabled resumes from its retained/loaded states. Since i_cfg_load loads all taps, drive the coefficient values intended for that new configuration when changing bypass mode.
+- Treat mode changes as a new measurement configuration. Select the mode before startup/training where possible; on a live change discard transition outputs, align references to the new D and restart the measurement/training epoch before comparing BER.
+- Do not reset or pause the sample stream to implement bypass. Exact mode-bit propagation and transition discard length must be specified with the pipeline schedule.
+- These modes extend the implementation proposal; they do not modify the Python model or establish numerical BER results for FFE-only/DFE-only modes.
+
+3.11 ITEMS TO FREEZE NEXT
+- Confirm this RX module split and the recommended internal formats; external Channel-to-RX input remains signed8 Q4.4.
+- Freeze the RX clock target, feedback/update scheduling, exact pipeline latency and startup/reference-alignment timing together.
+- Decide whether training reference alignment lives inside rx_top or the top-level testbench; this draft exposes a same-TX-beat i_tx_ref and aligns it inside RX.
+- Freeze config/mode-load timing, balanced bypass pipelines, mode-dependent reference alignment and transition measurement policy alongside arithmetic rules before RTL.
+- Later validate the selected Q4.4 Channel boundary and PRBS stream against an agreed numerical reference; existing model results use their original formats/source.
+
+SOURCES / DECISIONS
+- User-selected architecture: one PRBS -> MUX selecting a fixed Gray code -> PAM-4 mapper.
+- README.md: Gray mapping. User-selected TX interface: signed 4-bit integer amplitude, replacing Q4.12 at the TX boundary in this implementation proposal.
+- Current Python model: retained without modification; its random-symbol stream is separate from this implementation proposal.
+- User-selected Channel output interface: signed 8-bit Q4.4 (8 total bits, 4 fractional bits).
+- User-selected timing: continuous TX and one-symbol-per-clock Channel; remove per-symbol valid ports and use fixed pipeline timing.
+- RX proposal source: Python Config / dfe_core and current-model interfaces; 3 FFE taps, 1 DFE tap, separate FFE/DFE LMS, shared robust_proj error control.
+- User-requested RX coefficient config: three FFE and one DFE signed16 F12 inputs, atomic config load, and adaptation enable for fixed/adaptive operation.
+- User-requested independent FFE/DFE bypass: two active-high config bits, latched on i_cfg_load; four modes with per-branch LMS hold and mode-aware reference alignment.

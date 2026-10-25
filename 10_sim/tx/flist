@@ -1,0 +1,13 @@
+# Paths are relative to 10_sim (the Makefile sets this working directory).
++define+DV
+
++incdir+../00_src
++incdir+../00_src/tx
++incdir+../01_bench
++incdir+../01_bench/tx
+
+# Add RTL packages and dependencies here, before the module wrapper.
+../00_src/tx/tx_top.sv
+
+# Testbench
+../01_bench/tx/tb_top.sv
