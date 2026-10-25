@@ -1,0 +1,205 @@
+﻿DANH SÁCH CÔNG VIỆC - QUY HAU
+Project: FPGA PAM-4 / ISI + AWGN / FFE-DFE / BERT
+Nguồn: README.md, phần phân rã công việc và thứ tự ưu tiên do bạn thống nhất.
+Vai trò: System Integration, Co-Simulation, Synthesis/STA & MATLAB Weights.
+Danh sách mô tả việc cần phụ trách, chưa đánh giá tiến độ thực tế trong repository.
+
+THỨ TỰ ƯU TIÊN
+1. MAIN_TASK 1 - CODING PROJECT: B -> A -> D.
+   Làm model MATLAB và hệ số trước; từ model hình thành giao tiếp/cấu hình; sau đó kiểm chứng RTL với golden model.
+2. MAIN_TASK 2 - ON-BOARD ARTY A7: C -> E -> F.
+   Xây dựng top và tích hợp; chạy Vivado, đọc báo cáo; tạo bitstream, chạy board và viết hướng dẫn.
+Giữ mã công việc A-F để tiện đối chiếu; thứ tự ưu tiên được thể hiện bằng main_task và các bước bên dưới.
+
+==============================================================================================================================================================
+MAIN_TASK 1 - CODING PROJECT
+==============================================================================================================================================================
+Mục tiêu: có golden model, hệ số, giao tiếp/cấu hình rõ ràng và bộ kiểm chứng RTL bằng mô phỏng.
+Luồng thực hiện: B - MATLAB/golden model -> A - chốt interface/config -> D - kiểm chứng.
+B là ưu tiên đầu tiên. Dùng kết quả B để chốt A; sau đó cập nhật model fixed-point và vector theo interface đã thống nhất.
+
+1.1. BẢNG B - ƯU TIÊN ĐẦU TIÊN: MATLAB, GOLDEN MODEL VÀ HỆ SỐ
+
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| Mã    | Công việc của bạn                                         | Kết quả cần bàn giao / kiểm tra                            | Phối hợp                  |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| B01   | Dựng MATLAB PRBS-7/15 và mapper PAM-4 Gray.               | Bit/symbol tham chiếu đúng thứ tự bit và mức PAM-4.        | Dac Huy                   |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| B02   | Dựng model kênh h0*s[n] + h1*s[n-1] và nhiễu AWGN.        | Profile kênh/nhiễu, seed và quy ước SNR rõ ràng.           | Nhat Huy                  |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| B03   | Dựng FFE 3 tap, DFE 1 tap, slicer, demapper và đo BER/SER | Golden model đầy đủ cho chuỗi truyền nhận.                 | Phuc, Cuong, Dac Huy      |
+|       | trong MATLAB.                                             |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| B04   | Chọn phương pháp tính hệ số: MMSE, Zero-Forcing hoặc LMS  | Script tính [w0, w1, w2, b0] cho từng profile.             | Phuc, Cuong               |
+|       | offline.                                                  |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| B05   | Đánh giá hệ số, các chế độ bypass và ảnh hưởng nhiễu.     | Bảng/đồ thị BER/SER so sánh các chế độ equalizer.          | Phuc, Cuong               |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| B06   | Lượng tử hóa hệ số; mô phỏng đúng số học fixed-point của  | Bảng hệ số số thực, số nguyên/hex và sai số lượng tử.      | Phuc, Cuong               |
+|       | RTL.                                                      |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| B07   | Bàn giao hệ số và hướng dẫn sử dụng từng preset.          | Hệ số FFE cho Phuc, DFE cho Cuong; gain và độ trễ quyết    | Phuc, Cuong               |
+|       |                                                           | định.                                                      |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| B08   | Xuất vector tham chiếu và kết quả mong đợi có thể tái     | File stimulus/expected kèm seed và cấu hình.               | Cả nhóm                   |
+|       | lập.                                                      |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+
+
+1.2. BẢNG A - HÌNH THÀNH GIAO TIẾP VÀ CẤU HÌNH TỪ MODEL
+
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| Mã    | Công việc của bạn                                         | Kết quả cần bàn giao / kiểm tra                            | Phối hợp                  |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| A01   | Chốt đúng biến thể FPGA/board Arty A7.                    | Tên part FPGA và board dùng thống nhất trong Vivado.       | Cả nhóm                   |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| A02   | Chốt cổng, độ rộng, signed và định dạng fixed-point của   | Tài liệu interface cho từng module.                        | Cả nhóm                   |
+|       | tín hiệu/hệ số.                                           |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| A03   | Chốt clock, reset, valid và tốc độ xử lý symbol.          | Quy ước nhận dữ liệu, ngừng dữ liệu và khởi động.          | Cả nhóm                   |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| A04   | Chốt latency từng module và độ trễ quyết định của         | Bảng latency phục vụ tích hợp và căn tham chiếu BERT.      | Cả nhóm                   |
+|       | equalizer.                                                |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| A05   | Chốt rounding, saturation và xử lý overflow.              | Quy tắc số học chung cho MATLAB và RTL.                    | Nhat Huy, Phuc, Cuong     |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| A06   | Chốt preset kênh, SNR, PRBS, bypass và đổi cấu hình/reset | Bảng cấu hình chung cho model, RTL và demo.                | Cả nhóm                   |
+|       | phép đo.                                                  |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+
+
+Phạm vi bước 1.3: kiểm chứng module/cụm RTL sẵn có qua testbench mô phỏng, dựa trên golden model.
+Kiểm chứng toàn bộ top-level sẽ thực hiện sau khi xây dựng và tích hợp top ở bước 2.1.
+
+1.3. BẢNG D - KIỂM CHỨNG RTL VỚI GOLDEN MODEL
+
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| Mã    | Công việc của bạn                                         | Kết quả cần bàn giao / kiểm tra                            | Phối hợp                  |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| D01   | Viết testbench self-checking so RTL với golden model      | Tự báo pass/fail và vị trí sai khác.                       | Cả nhóm                   |
+|       | MATLAB.                                                   |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| D02   | Kiểm tra đường truyền lý tưởng và các biên ngưỡng slicer. | Xác nhận mapper/demapper, thứ tự bit, latency và quyết     | Dac Huy                   |
+|       |                                                           | định.                                                      |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| D03   | Kiểm tra ISI không nhiễu cho từng profile và chế độ       | Xác nhận hệ số, phép lọc và feedback DFE.                  | Nhat Huy, Phuc, Cuong     |
+|       | bypass.                                                   |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| D04   | Kiểm tra ISI kèm nhiễu ở các SNR; đối chiếu BER/SER.      | Số bit/symbol đo, số lỗi và điều kiện chạy rõ ràng.        | Nhat Huy, Dac Huy         |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| D05   | Kiểm tra signed, rounding, saturation và overflow.        | RTL khớp model fixed-point ở các trường hợp biên.          | Nhat Huy, Phuc, Cuong     |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| D06   | Kiểm tra reset, valid, đổi cấu hình và khởi động lại      | Không lẫn dữ liệu/counter giữa các lần đo.                 | Cả nhóm                   |
+|       | BERT.                                                     |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| D07   | So direct-form với speculative bằng cùng đầu vào và hệ    | Quyết định tương đương sau khi căn latency.                | Cuong                     |
+|       | số.                                                       |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| D08   | Tìm nguyên nhân sai khác và chạy lại kiểm tra sau khi     | Bộ kiểm chứng đạt; lưu log và cấu hình tái lập.            | Cả nhóm                   |
+|       | sửa.                                                      |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+
+
+KẾT QUẢ CẦN CÓ CỦA MAIN_TASK 1
+- Model MATLAB đầy đủ và model fixed-point phù hợp RTL.
+- Bộ hệ số từng profile, vector stimulus/expected và cách tái lập kết quả.
+- Tài liệu interface, cấu hình, latency và quy tắc số học.
+- Testbench self-checking, log kiểm chứng các module/cụm RTL và kết quả so với golden model.
+
+==============================================================================================================================================================
+MAIN_TASK 2 - ON-BOARD ARTY A7
+==============================================================================================================================================================
+Mục tiêu: đưa các module đã kiểm chứng thành hệ thống hoàn chỉnh và chạy được trên Arty A7.
+Luồng thực hiện: xây top -> tích hợp -> mô phỏng toàn chuỗi -> chạy Vivado -> đọc/sửa theo báo cáo -> nạp và chạy board.
+
+Sau khi tích hợp ở bước 2.1, dùng lại testbench/golden model của main_task 1 để kiểm chứng toàn chuỗi trước khi synthesis.
+
+2.1. BẢNG C - XÂY DỰNG TOP-LEVEL VÀ TÍCH HỢP HỆ THỐNG
+
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| Mã    | Công việc của bạn                                         | Kết quả cần bàn giao / kiểm tra                            | Phối hợp                  |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| C01   | Viết pam4_transceiver_top.sv, nối TX, kênh, nhiễu, FFE,   | Top-level đầy đủ, đúng interface đã chốt.                  | Cả nhóm                   |
+|       | DFE, RX, BERT.                                            |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| C02   | Tích hợp hệ số, chọn PRBS, kênh/SNR và bypass FFE/DFE.    | Các chế độ cấu hình hoạt động thống nhất.                  | Cả nhóm                   |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| C03   | Căn valid, dữ liệu và reset xuyên suốt pipeline.          | Symbol đi đúng thứ tự và thời điểm hợp lệ.                 | Cả nhóm                   |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| C04   | Tích hợp căn dữ liệu phát/thu cho BERT; bỏ giai đoạn khởi | BERT so đúng cặp bit/symbol, không sai do lệch latency.    | Dac Huy                   |
+|       | động.                                                     |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| C05   | Tích hợp lựa chọn DFE direct-form/speculative.            | Hai kiến trúc dùng chung điều kiện so sánh.                | Cuong                     |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+
+
+2.2. BẢNG E - CHUẨN BỊ PROJECT VIVADO VÀ RÀNG BUỘC BOARD
+
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| Mã    | Công việc của bạn                                         | Kết quả cần bàn giao / kiểm tra                            | Phối hợp                  |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| E01   | Tạo project/scripts Vivado, thêm RTL và chọn đúng FPGA.   | Project dựng lại được theo hướng dẫn.                      | Cả nhóm                   |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| E02   | Lập .xdc cho clock, chân board và chuẩn I/O.              | Constraint khớp board và giao diện demo.                   | Cả nhóm                   |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+
+
+Khi đọc báo cáo: kiểm tra warning, LUT/FF/DSP/BRAM, setup/hold slack, critical path và clock constraint.
+Nếu chưa đạt yêu cầu, sửa thiết kế/constraint rồi chạy lại; đánh giá hai kiến trúc DFE theo cùng điều kiện.
+
+2.3. BẢNG E - CHẠY SYNTHESIS/IMPLEMENTATION, ĐỌC VÀ XỬ LÝ BÁO CÁO
+
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| Mã    | Công việc của bạn                                         | Kết quả cần bàn giao / kiểm tra                            | Phối hợp                  |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| E03   | Chạy synthesis, kiểm tra warning và tài nguyên.           | Báo cáo LUT, FF, DSP, BRAM và các vấn đề cần sửa.          | Phuc, Cuong               |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| E04   | Chạy place & route; phân tích setup/hold và critical      | Báo cáo slack, latency, throughput và Fmax có căn cứ.      | Phuc, Cuong               |
+|       | path.                                                     |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| E05   | So sánh timing và tài nguyên của hai kiến trúc DFE.       | Bảng trade-off tần số, tài nguyên, độ trễ cho L.O.3.       | Cuong                     |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| E06   | Phối hợp sửa lỗi tích hợp, pipeline/constraint khi timing | Thiết kế đạt yêu cầu đã chốt; ghi rõ giới hạn còn lại.     | Cả nhóm                   |
+|       | chưa đạt.                                                 |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+
+
+Nội dung chạy board: kết nối/cấp nguồn, nạp bitstream, reset, chọn cấu hình, chạy phép đo và quan sát kết quả BERT.
+Cách điều khiển và quan sát cụ thể sẽ chốt theo giao diện board của nhóm.
+
+2.4. BẢNG E - TẠO BITSTREAM, NẠP VÀ CHẠY TRÊN ARTY A7
+
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| Mã    | Công việc của bạn                                         | Kết quả cần bàn giao / kiểm tra                            | Phối hợp                  |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| E07   | Tạo bitstream, nạp board; kiểm tra cấu hình/bypass và     | Demo trên Arty A7 với cách quan sát số liệu đã thống nhất. | Cả nhóm                   |
+|       | BERT.                                                     |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+
+
+2.5. BẢNG F - TỔNG HỢP KẾT QUẢ, BÁO CÁO VÀ HƯỚNG DẪN CHẠY
+
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| Mã    | Công việc của bạn                                         | Kết quả cần bàn giao / kiểm tra                            | Phối hợp                  |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| F01   | Tổng hợp kết quả MATLAB, RTL và FPGA theo cấu hình.       | Bảng BER/SER, hệ số, số bit đo và điều kiện chạy.          | Cả nhóm                   |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| F02   | Chuẩn bị phần báo cáo của mình và số liệu cho báo cáo     | Model, tích hợp, kiểm chứng, tài nguyên và timing.         | Cả nhóm                   |
+|       | chung.                                                    |                                                            |                           |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+| F03   | Viết hướng dẫn chạy simulation, Vivado và demo.           | Danh sách file và lệnh/script để chạy lại.                 | Cả nhóm                   |
++-------+-----------------------------------------------------------+------------------------------------------------------------+---------------------------+
+
+
+KẾT QUẢ CẦN CÓ CỦA MAIN_TASK 2
+- Top-level tích hợp đầy đủ, vượt kiểm chứng mô phỏng toàn chuỗi.
+- Project/scripts Vivado, file .xdc và báo cáo tài nguyên/timing.
+- Bitstream và kết quả demo thực tế trên Arty A7.
+- Hướng dẫn dựng project, chạy simulation, đọc báo cáo, nạp board và chạy từng cấu hình.
+
+LƯU Ý PHẠM VI
+- Hệ số tính offline rồi cấu hình vào RTL; README chưa yêu cầu adaptive LMS chạy thời gian thực.
+- Thành viên phụ trách RTL từng khối; bạn phụ trách interface chung, model, hệ số, tích hợp và kiểm chứng toàn hệ thống.
+- So từng mẫu có nhiễu cần cùng vector nhiễu hoặc model đúng bộ sinh RTL; so BER thống kê cần ghi seed và số mẫu.
+- BER = số bit lỗi / tổng bit hợp lệ; SER = số symbol lỗi / tổng symbol hợp lệ, sau khi căn latency và bỏ giai đoạn khởi động.
+- Mốc trên 200 MHz trong README là mục tiêu; chỉ báo cáo đạt khi có kết quả timing phù hợp.

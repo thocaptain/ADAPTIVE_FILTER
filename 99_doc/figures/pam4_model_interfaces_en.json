@@ -1,0 +1,442 @@
+{
+  "data": {
+    "representation": {
+      "bits": 16,
+      "fractional_bits": 12,
+      "integer_range": [
+        -32768,
+        32767
+      ],
+      "real_range": [
+        -8.0,
+        7.999755859375
+      ],
+      "lsb": 0.000244140625
+    },
+    "configured": {
+      "ffe_taps": [
+        -1.25,
+        1.25
+      ],
+      "dfe_tap": [
+        -0.75,
+        0.75
+      ],
+      "error_clip": [
+        -2.5,
+        2.5
+      ],
+      "dd_update_error": [
+        -1.5,
+        1.5
+      ],
+      "mu": 0.0005,
+      "mu_acc_q20": 524,
+      "adaptation_bits": 40,
+      "adaptation_fractional_bits": 20
+    },
+    "theoretical": {
+      "tx_levels": [
+        -3,
+        -1,
+        1,
+        3
+      ],
+      "clean": [
+        -4.5,
+        4.5
+      ],
+      "lane_uniform": [
+        0,
+        4095
+      ],
+      "uniform_sum": [
+        0,
+        49140
+      ],
+      "centered_sum": [
+        -24570,
+        24570
+      ],
+      "unit_clt": [
+        -5.99853515625,
+        5.99853515625
+      ],
+      "scaled_noise": [
+        -1.499755859375,
+        1.49951171875
+      ],
+      "rx": [
+        -5.999755859375,
+        5.99951171875
+      ],
+      "dfe_feedback": [
+        -2.25,
+        2.25
+      ],
+      "ffe_wide_sum": [
+        -22.499267578125,
+        22.49853515625
+      ]
+    },
+    "measured": {
+      "clean": [
+        -4.5,
+        4.5
+      ],
+      "noise": [
+        -0.998046875,
+        1.063232421875
+      ],
+      "rx": [
+        -5.417724609375,
+        5.410888671875
+      ],
+      "ffe_wide_sum": [
+        -5.32177734375,
+        5.354248046875
+      ],
+      "dfe_feedback": [
+        -1.518310546875,
+        1.517578125
+      ],
+      "y": [
+        -3.95556640625,
+        3.9580078125
+      ],
+      "error_raw": [
+        -2.0634765625,
+        2.1357421875
+      ],
+      "psi": [
+        -2.0634765625,
+        2.1357421875
+      ]
+    },
+    "sigma_float": 0.25002587366110735,
+    "sigma_fx": 1024,
+    "frame_symbols": 200000,
+    "train_samples": 3000,
+    "delay": 1,
+    "metrics": {
+      "symbols": 197000,
+      "bits": 394000,
+      "symbol_errors": 6,
+      "bit_errors": 6,
+      "ser": 3.045685279187817e-05,
+      "ber": 1.5228426395939086e-05,
+      "ber_binomial_95_interval": [
+        5.588583939687135e-06,
+        3.314557620964174e-05
+      ]
+    },
+    "final_taps": [
+      {
+        "tap": "w0",
+        "final_after_update_fx": 32,
+        "final_after_update_real": 0.0078125,
+        "final_after_update_hex": "0020",
+        "used_for_last_output_fx": 35,
+        "used_for_last_output_real": 0.008544921875,
+        "tail_mean": 0.0052847412109375,
+        "tail_std": 0.004250115928120652,
+        "tail_min": -0.00830078125,
+        "tail_max": 0.017333984375,
+        "ideal_no_noise_reference": 0.0
+      },
+      {
+        "tap": "w1",
+        "final_after_update_fx": 4039,
+        "final_after_update_real": 0.986083984375,
+        "final_after_update_hex": "0FC7",
+        "used_for_last_output_fx": 4041,
+        "used_for_last_output_real": 0.986572265625,
+        "tail_mean": 0.9847083740234375,
+        "tail_std": 0.004369243579686588,
+        "tail_min": 0.9716796875,
+        "tail_max": 0.99658203125,
+        "ideal_no_noise_reference": 1.0
+      },
+      {
+        "tap": "w2",
+        "final_after_update_fx": -22,
+        "final_after_update_real": -0.00537109375,
+        "final_after_update_hex": "FFEA",
+        "used_for_last_output_fx": -23,
+        "used_for_last_output_real": -0.005615234375,
+        "tail_mean": 0.00029144287109375,
+        "tail_std": 0.003797367950413038,
+        "tail_min": -0.009765625,
+        "tail_max": 0.009765625,
+        "ideal_no_noise_reference": 0.0
+      },
+      {
+        "tap": "b0",
+        "final_after_update_fx": 2018,
+        "final_after_update_real": 0.49267578125,
+        "final_after_update_hex": "07E2",
+        "used_for_last_output_fx": 2019,
+        "used_for_last_output_real": 0.492919921875,
+        "tail_mean": 0.4937883544921875,
+        "tail_std": 0.003811722000583546,
+        "tail_min": 0.47998046875,
+        "tail_max": 0.505615234375,
+        "ideal_no_noise_reference": 0.5
+      }
+    ],
+    "ffe_feedback_replay_verified": true,
+    "range_scope": "Bounds apply to the Gaussian/CLT 20 dB case; gaussmix is not drawn. Measured ranges use the entire 200000-sample frame.",
+    "split_lms_state_replay_verified": true,
+    "lms_replayed_samples": 200000,
+    "lms_final_accumulator_fx": {
+      "ffe": [
+        8199,
+        1034064,
+        -5607
+      ],
+      "dfe": 516618
+    }
+  },
+  "ports": [
+    {
+      "id": "P01",
+      "source": "TX",
+      "target": "ISI / TX alignment / raw monitor",
+      "signal": "s[n]",
+      "format": "signed16 F12",
+      "bound": "S4={-3,-1,+1,+3}",
+      "measured": "",
+      "note": "Random PAM-4 symbols, not a PRBS stream."
+    },
+    {
+      "id": "P02",
+      "source": "ISI FIR",
+      "target": "Noise adder",
+      "signal": "r_clean[n]",
+      "format": "signed16 F12",
+      "bound": "[-4.5,+4.5]",
+      "measured": "[-4.500000, 4.500000]",
+      "note": ""
+    },
+    {
+      "id": "P03",
+      "source": "12 Taus88 + mix/extract",
+      "target": "CLT",
+      "signal": "R_j[n], j=1..12",
+      "format": "12 x unsigned12",
+      "bound": "Each integer in [0,4095]",
+      "measured": "",
+      "note": ""
+    },
+    {
+      "id": "P04",
+      "source": "CLT sum/center/normalize",
+      "target": "Noise scale",
+      "signal": "z_unit[n]",
+      "format": "signed16 F12",
+      "bound": "[-5.998535156250, 5.998535156250]",
+      "measured": "",
+      "note": ""
+    },
+    {
+      "id": "P05",
+      "source": "Noise scale",
+      "target": "Noise adder",
+      "signal": "eta[n]",
+      "format": "signed16 F12",
+      "bound": "[-1.499755859375, 1.499511718750]",
+      "measured": "[-0.998047, 1.063232]",
+      "note": ""
+    },
+    {
+      "id": "P06",
+      "source": "Noise adder",
+      "target": "FFE / raw monitor",
+      "signal": "r[n]",
+      "format": "signed16 F12",
+      "bound": "[-5.999755859375, 5.999511718750]",
+      "measured": "[-5.417725, 5.410889]",
+      "note": ""
+    },
+    {
+      "id": "P07",
+      "source": "FFE",
+      "target": "DFE",
+      "signal": "f[n]",
+      "format": "wide signed sum, F12 (18 bits suffice for bound)",
+      "bound": "[-22.499267578125, 22.498535156250]",
+      "measured": "[-5.321777, 5.354248]",
+      "note": "No intermediate FFE-sum saturation before the DFE subtraction."
+    },
+    {
+      "id": "P08",
+      "source": "DFE subtraction",
+      "target": "Slicer / LMS error comparator C1",
+      "signal": "y[n]",
+      "format": "signed16 F12",
+      "bound": "Q=[-8,7.999755859375]",
+      "measured": "[-3.955566, 3.958008]",
+      "note": "LMS compares the current pre-slicer output."
+    },
+    {
+      "id": "P09",
+      "source": "Slicer",
+      "target": "Gray labels / decision memory / desired selector",
+      "signal": "d_hat[n]",
+      "format": "signed16 F12",
+      "bound": "S4",
+      "measured": "",
+      "note": ""
+    },
+    {
+      "id": "P10",
+      "source": "Gray labels",
+      "target": "Post-EQ comparator C2",
+      "signal": "(d_hat[n], b_hat[n])",
+      "format": "symbol + 2 Gray bits",
+      "bound": "S4 x {00,01,11,10}",
+      "measured": "",
+      "note": "Gray conversion is measurement postprocessing in the Python model."
+    },
+    {
+      "id": "P11",
+      "source": "DFE decision z^-1",
+      "target": "DFE feedback / DFE LMS",
+      "signal": "d_prev[n]=d_hat[n-1]",
+      "format": "signed16 F12",
+      "bound": "S0=S4 union {0}",
+      "measured": "",
+      "note": "Initialized to zero; used both by the DFE and its LMS branch."
+    },
+    {
+      "id": "P12",
+      "source": "TX alignment z^-D",
+      "target": "Training selector / C2",
+      "signal": "d_ref[n]=s[n-D]",
+      "format": "signed16 F12",
+      "bound": "S0",
+      "measured": "",
+      "note": "D=1. Startup reference is zero."
+    },
+    {
+      "id": "P13",
+      "source": "Training / DD selector",
+      "target": "LMS error comparator C1",
+      "signal": "d_des[n]",
+      "format": "signed16 F12",
+      "bound": "S0",
+      "measured": "",
+      "note": "d_ref for n<=3000, d_hat afterwards; zero during startup n<=D."
+    },
+    {
+      "id": "P14",
+      "source": "C1",
+      "target": "Clip / gate",
+      "signal": "e_raw[n]=satQ(d_des-y)",
+      "format": "signed16 F12",
+      "bound": "Q",
+      "measured": "[-2.063477, 2.135742]",
+      "note": ""
+    },
+    {
+      "id": "P15",
+      "source": "Clip / gate",
+      "target": "FFE LMS + DFE LMS",
+      "signal": "(psi[n], g[n])",
+      "format": "signed16 F12 + Boolean",
+      "bound": "psi in [-2.5,+2.5]; g in {0,1}",
+      "measured": "[-2.063477, 2.135742]",
+      "note": "Both update branches use the same current error and gate."
+    },
+    {
+      "id": "P16",
+      "source": "FFE sample buffer",
+      "target": "FFE LMS",
+      "signal": "x[n]=(r[n],r[n-1],r[n-2])",
+      "format": "3 x signed16 F12",
+      "bound": "Each in R",
+      "measured": "",
+      "note": "Two internal sample delays in the FFE; initial history is zero."
+    },
+    {
+      "id": "P17",
+      "source": "FFE LMS update",
+      "target": "FFE coefficient memory",
+      "signal": "A_w_next[n]",
+      "format": "3 x signed40 F20",
+      "bound": "Each in W=[-1.25,+1.25]",
+      "measured": "",
+      "note": "Projected next accumulator state."
+    },
+    {
+      "id": "P18",
+      "source": "FFE coefficient z^-1",
+      "target": "FFE LMS state input",
+      "signal": "A_w[n]=A_w_next[n-1]",
+      "format": "3 x signed40 F20",
+      "bound": "Each in W",
+      "measured": "",
+      "note": "Initial state [0,0.75,0]; not an added error delay."
+    },
+    {
+      "id": "P19",
+      "source": "FFE coefficient memory + quantizer",
+      "target": "FFE",
+      "signal": "w[n]=Q12(A_w[n])",
+      "format": "3 x signed16 F12",
+      "bound": "Each in W",
+      "measured": "",
+      "note": ""
+    },
+    {
+      "id": "P20",
+      "source": "DFE LMS update",
+      "target": "DFE coefficient memory",
+      "signal": "A_b_next[n]",
+      "format": "signed40 F20",
+      "bound": "B=[-0.75,+0.75]",
+      "measured": "",
+      "note": ""
+    },
+    {
+      "id": "P21",
+      "source": "DFE coefficient z^-1",
+      "target": "DFE LMS state input",
+      "signal": "A_b[n]=A_b_next[n-1]",
+      "format": "signed40 F20",
+      "bound": "B",
+      "measured": "",
+      "note": "Initial state zero; not an added error delay."
+    },
+    {
+      "id": "P22",
+      "source": "DFE coefficient memory + quantizer",
+      "target": "DFE",
+      "signal": "b0[n]=Q12(A_b[n])",
+      "format": "signed16 F12",
+      "bound": "B",
+      "measured": "",
+      "note": ""
+    },
+    {
+      "id": "P23",
+      "source": "Post-EQ comparison C2",
+      "target": "Results",
+      "signal": "BER / SER / error counts",
+      "format": "ratios + integer counters",
+      "bound": "BER,SER in [0,1]; bit errors 0..394000; symbol errors 0..197000",
+      "measured": "BER=6/394000; SER=6/197000",
+      "note": ""
+    },
+    {
+      "id": "P24",
+      "source": "Raw comparison C0",
+      "target": "Results",
+      "signal": "BER_raw / SER_raw",
+      "format": "ratios + integer counters",
+      "bound": "BER,SER in [0,1]",
+      "measured": "BER_raw=73983/394000",
+      "note": "Compare slice(r[k]) with s[k], D=0, using the same retained TX indices as C2."
+    }
+  ]
+}

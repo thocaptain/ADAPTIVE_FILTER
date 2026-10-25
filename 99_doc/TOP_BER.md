@@ -19,9 +19,9 @@ Default counter width is 64 bits. When the next complete two-bit symbol would ov
 
 ## Symbols per clock
 
-`Top.SYMBOLS_PER_CYCLE` defaults to 1. It reserves the stream bus sizing for future parallel processing. TX/RX symbol buses use `4*N` bits, Gray buses `2*N`, Channel samples `8*N`, and pre-slicer RX samples `16*N`, where `N=SYMBOLS_PER_CYCLE`. Fixed-point formats apply to each symbol/sample; coefficient and configuration ports retain their current widths.
+`Top.NUMBER_SYMBOL` defaults to 1. Stream buses use two packed dimensions: `[NUMBER_SYMBOL-1:0][width-1:0]`. TX/RX symbols use `[NUMBER_SYMBOL-1:0][3:0]`, Gray buses `[NUMBER_SYMBOL-1:0][1:0]`, Channel samples `[NUMBER_SYMBOL-1:0][7:0]`, and pre-slicer RX samples `[NUMBER_SYMBOL-1:0][15:0]`. Access symbol/sample lane `k` as `bus[k]` and its bit `b` as `bus[k][b]`. Fixed-point formats apply to each lane; coefficient and configuration ports retain their current widths. Use `$signed(bus[k])` when interpreting an individual packed lane in signed arithmetic.
 
-Only `N=1` is currently implemented. Top rejects other values with `$fatal` to prevent partial processing or incorrect BER totals. Supporting `N>1` requires matching child-module interfaces, chronological lane packing, cross-lane Channel/FFE/DFE/LMS state handling, training scheduling and symbol-aware BER alignment/counting. A wider packed bus alone does not implement parallel processing. Latency parameters remain in clocks and FFE_SYMBOL_DELAY remains in symbols.
+Only `NUMBER_SYMBOL=1` is currently implemented. Top rejects other values with `$fatal` to prevent partial processing or incorrect BER totals. Supporting `NUMBER_SYMBOL>1` requires matching child-module interfaces, chronological lane packing, cross-lane Channel/FFE/DFE/LMS state handling, training scheduling and symbol-aware BER alignment/counting. A wider packed bus alone does not implement parallel processing. Latency parameters remain in clocks and FFE_SYMBOL_DELAY remains in symbols.
 
 ## Latency contract
 
