@@ -2,6 +2,7 @@
 
 module Top
 #(
+    parameter integer               SYMBOLS_PER_CYCLE   = 1,               // [1, 2^31-1] symbols/clock
     parameter logic          [6:0]  PRBS_SEED           = 7'h7f,           // U7 [1, 127]
     parameter logic   signed [15:0] CHANNEL_H1_Q12      = 16'sd2048,       // Q4.12 [-8, 8-2^-12]
     parameter logic          [31:0] NOISE_SEED          = 32'h00000a5b,    // U32 [0, 2^32-1]
@@ -39,13 +40,13 @@ module Top
     , input  logic               i_ber_en               // {0, 1}
     , input  logic               i_ber_clear            // {0, 1}
 
-    , output logic signed [3:0]  o_tx_sym               // Q4.0 {-3, -1, +1, +3}
-    , output logic        [1:0]  o_tx_bits              // U2 {00, 01, 11, 10}
-    , output logic signed [7:0]  o_channel_r            // Q4.4 [-8, 7.9375]
+    , output logic signed [4*SYMBOLS_PER_CYCLE-1:0]  o_tx_sym    // Q4.0 {-3, -1, +1, +3}
+    , output logic        [2*SYMBOLS_PER_CYCLE-1:0]  o_tx_bits   // U2 {00, 01, 11, 10}
+    , output logic signed [8*SYMBOLS_PER_CYCLE-1:0]  o_channel_r // Q4.4 [-8, 7.9375]
 
-    , output logic signed [3:0]  o_rx_sym               // Q4.0 {-3, -1, +1, +3}
-    , output logic        [1:0]  o_rx_bits              // U2 {00, 01, 11, 10}
-    , output logic signed [15:0] o_rx_y                 // Q4.12 [-8, 8-2^-12]
+    , output logic signed [4*SYMBOLS_PER_CYCLE-1:0]  o_rx_sym    // Q4.0 {-3, -1, +1, +3}
+    , output logic        [2*SYMBOLS_PER_CYCLE-1:0]  o_rx_bits   // U2 {00, 01, 11, 10}
+    , output logic signed [16*SYMBOLS_PER_CYCLE-1:0] o_rx_y      // Q4.12 [-8, 8-2^-12]
     , output logic signed [15:0] o_ffe0                 // Q4.12 [-8, 8-2^-12]
     , output logic signed [15:0] o_ffe1                 // Q4.12 [-8, 8-2^-12]
     , output logic signed [15:0] o_ffe2                 // Q4.12 [-8, 8-2^-12]
@@ -57,14 +58,14 @@ module Top
     , output logic        [31:0] o_ber_latency          // [0, 2^32-1] clocks
 );
 
-    logic signed [3:0]  TX_sym;      // Q4.0 {-3, -1, +1, +3}
-    logic        [1:0]  TX_bits_ref; // U2 {00, 01, 11, 10}
+    logic signed [4*SYMBOLS_PER_CYCLE-1:0]  TX_sym;      // Q4.0 {-3, -1, +1, +3}
+    logic        [2*SYMBOLS_PER_CYCLE-1:0]  TX_bits_ref; // U2 {00, 01, 11, 10}
 
-    logic signed [7:0]  CH_r;        // Q4.4 [-8, 7.9375]
+    logic signed [8*SYMBOLS_PER_CYCLE-1:0]  CH_r;        // Q4.4 [-8, 7.9375]
 
-    logic signed [3:0]  RX_sym;      // Q4.0 {-3, -1, +1, +3}
-    logic        [1:0]  RX_bits;     // U2 {00, 01, 11, 10}
-    logic signed [15:0] RX_y;        // Q4.12 [-8, 8-2^-12]
+    logic signed [4*SYMBOLS_PER_CYCLE-1:0]  RX_sym;      // Q4.0 {-3, -1, +1, +3}
+    logic        [2*SYMBOLS_PER_CYCLE-1:0]  RX_bits;     // U2 {00, 01, 11, 10}
+    logic signed [16*SYMBOLS_PER_CYCLE-1:0] RX_y;        // Q4.12 [-8, 8-2^-12]
 
     logic signed [15:0] RX_ffe0;     // Q4.12 [-8, 8-2^-12]
     logic signed [15:0] RX_ffe1;     // Q4.12 [-8, 8-2^-12]
@@ -216,6 +217,8 @@ module Top
     end
 
     initial begin
+        if (SYMBOLS_PER_CYCLE != 1)
+            $fatal(1, "Only SYMBOLS_PER_CYCLE=1 is implemented; parallel datapath and BER support is required");
         if (TX_LATENCY < 0 || CHANNEL_LATENCY < 0 || FFE_LATENCY < 0 || DFE_LATENCY < 0
             || SLICER_LATENCY < 0 || FFE_SYMBOL_DELAY < 0 || RX_STARTUP_CYCLES < 0
             || TRAIN_LEN < 0 || BER_COUNTER_WIDTH < 2 || BER_COUNTER_WIDTH > 64)

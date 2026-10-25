@@ -17,6 +17,12 @@ For each eligible symbol, `TX_reference XOR RX_bits` gives two error bits. Their
 
 Default counter width is 64 bits. When the next complete two-bit symbol would overflow the total counter, both counters stop together. The largest total is `2^BER_COUNTER_WIDTH-2`; counters do not wrap. Supported widths are 2..64.
 
+## Symbols per clock
+
+`Top.SYMBOLS_PER_CYCLE` defaults to 1. It reserves the stream bus sizing for future parallel processing. TX/RX symbol buses use `4*N` bits, Gray buses `2*N`, Channel samples `8*N`, and pre-slicer RX samples `16*N`, where `N=SYMBOLS_PER_CYCLE`. Fixed-point formats apply to each symbol/sample; coefficient and configuration ports retain their current widths.
+
+Only `N=1` is currently implemented. Top rejects other values with `$fatal` to prevent partial processing or incorrect BER totals. Supporting `N>1` requires matching child-module interfaces, chronological lane packing, cross-lane Channel/FFE/DFE/LMS state handling, training scheduling and symbol-aware BER alignment/counting. A wider packed bus alone does not implement parallel processing. Latency parameters remain in clocks and FFE_SYMBOL_DELAY remains in symbols.
+
 ## Latency contract
 
 The parameters describe the implemented pipeline; they do not insert pipeline registers into the child modules or discover latency automatically.
