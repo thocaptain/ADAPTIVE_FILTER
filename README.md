@@ -199,7 +199,6 @@ v Pre-Slicer y[n]                     |
   - **Total Bit Counter**: 48-bit register accumulating evaluated bits.
   - **Bit Error Counter**: 32-bit register counting mismatched bits.
   - Computes and outputs real-time Bit Error Rate (BER).
-
 ---
 
 ## 4. Hardware Pipelining Strategy & L.O.3 Compliance
