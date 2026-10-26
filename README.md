@@ -71,12 +71,8 @@ This project implements an **autonomous, on-chip PAM-4 digital baseband evaluati
 
 ## 2. Key Architecture Decisions & Reference Features
 
-To adapt the reference graduation thesis into a high-scoring, modular **course assignment** for EE5427, the following key architectural choices are established:
-
 | Feature | Reference Thesis Architecture | Proposed Assignment Architecture | Technical Motivation |
 | :--- | :--- | :--- | :--- |
-| **Test Pattern Generator & Monitor** | Standard high-order PRBS-7/15 LFSRs with cross-correlation lock state machines. | **2-Bit Cyclic Gray-Code Generator & Synchronized BER Monitor** (continuous cycle: `0 -> 1 -> 2 -> 3 -> 0...`). | Drastically simplifies pattern generation and reference synchronization while fully exercising all 4 PAM-4 signal levels and transitions for bit error measurement. |
-| **Equalizer Tap Adaptation** | Top-level adaptive equalizer with centralized adaptation engine. | **Modular Embedded Adaptive Tap Units** implemented directly inside each **FFE** and **DFE** module. | Preserves the thesis's **LMS coefficient adaptation**, `init_alpha` preset loading, and step-size $\mu$ control, distributed cleanly into modular FFE and DFE blocks. |
 | **Monitoring & Visualization** | External **ESP32-S3 microcontroller** over UART, transmitting HTTP packets via Wi-Fi to a PC web browser for eye-diagram plots. | **On-Chip Cyclic BER Monitor** directly following the PAM-4 Slicer. | Eliminates external microcontrollers, Wi-Fi dependencies, and web development. The FPGA becomes **100% self-contained**, giving deterministic, quantitative BER measurements. |
 
 ---
