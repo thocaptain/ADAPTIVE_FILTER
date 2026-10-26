@@ -1,286 +1,135 @@
-`timescale 1ns/1ps
+// =============================================================================
+// Module Name:   top
+// Project:       FPGA-Based PAM-4 Communication System
+// Member:        Member 5 (Quy Hau)
+// Description:   Full System Top-Level Module.
+//                Cascades:
+//                [ tx_top ] ---> [ channel_top ] ---> [ rx_top ]
+//                Exposes all board-level clocks, resets, configurations,
+//                and 32-bit status registers.
+// =============================================================================
 
-module Top
-#(
-    parameter integer               NUMBER_SYMBOL       = 1,               // [1, 2^31-1] symbols/clock
-    parameter logic          [6:0]  PRBS_SEED           = 7'h7f,           // U7 [1, 127]
-    parameter logic   signed [15:0] CHANNEL_H1_Q12      = 16'sd2048,       // Q4.12 [-8, 8-2^-12]
-    parameter logic          [31:0] NOISE_SEED          = 32'h00000a5b,    // U32 [0, 2^32-1]
-    parameter logic          [7:0]  DEFAULT_SNR_DB      = 8'd20,            // U8 [0, 255] dB
-    parameter integer               TRAIN_LEN           = 3000,            // Integer [0, 2^31-1]
-    parameter logic   signed [39:0] MU_F20              = 40'sd524,        // Q20.20 [-2^19, 2^19-2^-20]
-    parameter integer               TX_LATENCY          = 1,               // [0, 2^31-1] clocks
-    parameter integer               CHANNEL_LATENCY     = 1,               // [0, 2^31-1] clocks
-    parameter integer               FFE_LATENCY         = 0,               // [0, 2^31-1] clocks
-    parameter integer               DFE_LATENCY         = 0,               // [0, 2^31-1] clocks
-    parameter integer               SLICER_LATENCY      = 1,               // [0, 2^31-1] clocks
-    parameter integer               FFE_SYMBOL_DELAY    = 1,               // [0, 2^31-1] symbols
-    parameter integer               BER_COUNTER_WIDTH   = 64,              // [2, 64]
-    parameter bit                   BER_SKIP_TRAINING   = 1'b1,            // {0, 1}
-    parameter integer               RX_STARTUP_CYCLES   = TX_LATENCY + CHANNEL_LATENCY,
-    parameter integer               TX_REF_DELAY_CYCLES = CHANNEL_LATENCY + FFE_LATENCY + DFE_LATENCY
-)
-(
-      input  logic               i_clk                  // {0, 1}
-    , input  logic               i_rst_n                // {0, 1}
+`timescale 1ns / 1ps
 
-    , input  logic               i_noise_en             // {0, 1}
-    , input  logic        [7:0]  i_cfg_snr_db           // U8 [0, 255] dB
-    , input  logic               i_cfg_noise_load       // {0, 1}
+module top #(
+    parameter int DATA_WIDTH = 16,
+    parameter int DATA_FRAC  = 12
+)(
+    // Primary Clock & Active-Low Asynchronous Reset
+    input  logic                          i_clk,
+    input  logic                          i_rstn,
 
-    , input  logic signed [15:0] i_cfg_ffe0             // Q4.12 [-8, 8-2^-12]
-    , input  logic signed [15:0] i_cfg_ffe1             // Q4.12 [-8, 8-2^-12]
-    , input  logic signed [15:0] i_cfg_ffe2             // Q4.12 [-8, 8-2^-12]
-    , input  logic signed [15:0] i_cfg_dfe0             // Q4.12 [-8, 8-2^-12]
-    , input  logic               i_cfg_load             // {0, 1}
-    , input  logic               i_adapt_en             // {0, 1}
-    , input  logic               i_ffe_bypass           // {0, 1}
-    , input  logic               i_dfe_bypass           // {0, 1}
+    // TX Configurations
+    input  logic                          i_cfg_tx_en,         // Enable 2-bit cyclic Gray code generation
 
-    , input  logic               i_ber_en               // {0, 1}
-    , input  logic               i_ber_clear            // {0, 1}
+    // Channel Impairment Configurations
+    input  logic                          i_cfg_isi_en,        // 1: Enable ISI filter, 0: Bypass ISI
+    input  logic signed [DATA_WIDTH-1:0]  i_cfg_isi_coeff,     // Post-cursor ISI coefficient (h1): voltage leak from s[n-1] to s[n] (default: 16'sh0800 = 0.50, h0 fixed = 1.0)
+    input  logic                          i_cfg_awgn_en,       // 1: Enable AWGN noise injection, 0: Clean signal
+    input  logic [15:0]                   i_cfg_snr_db,        // Noise scale sigma_noise / SNR config (Q4.12)
 
-    , output logic signed [NUMBER_SYMBOL-1:0][3:0]  o_tx_sym    // Q4.0 {-3, -1, +1, +3}
-    , output logic        [NUMBER_SYMBOL-1:0][1:0]  o_tx_bits   // U2 {00, 01, 11, 10}
-    , output logic signed [NUMBER_SYMBOL-1:0][7:0]  o_channel_r // Q4.4 [-8, 7.9375]
+    // Equalizer Core Configurations
+    input  logic                          i_cfg_ffe_en,        // 1: Enable FFE filtering, 0: Bypass FFE
+    input  logic                          i_cfg_dfe_en,        // 1: Enable DFE feedback, 0: Bypass DFE
+    input  logic signed [DATA_WIDTH-1:0]  i_cfg_ffe_w0,        // FFE tap 0 weight (Q4.12)
+    input  logic signed [DATA_WIDTH-1:0]  i_cfg_ffe_w1,        // FFE tap 1 weight (Q4.12)
+    input  logic signed [DATA_WIDTH-1:0]  i_cfg_ffe_w2,        // FFE tap 2 weight (Q4.12)
+    input  logic signed [DATA_WIDTH-1:0]  i_cfg_dfe_b0,        // DFE tap 0 feedback weight (Q4.12)
 
-    , output logic signed [NUMBER_SYMBOL-1:0][3:0]  o_rx_sym    // Q4.0 {-3, -1, +1, +3}
-    , output logic        [NUMBER_SYMBOL-1:0][1:0]  o_rx_bits   // U2 {00, 01, 11, 10}
-    , output logic signed [NUMBER_SYMBOL-1:0][15:0] o_rx_y      // Q4.12 [-8, 8-2^-12]
-    , output logic signed [15:0] o_ffe0                 // Q4.12 [-8, 8-2^-12]
-    , output logic signed [15:0] o_ffe1                 // Q4.12 [-8, 8-2^-12]
-    , output logic signed [15:0] o_ffe2                 // Q4.12 [-8, 8-2^-12]
-    , output logic signed [15:0] o_dfe0                 // Q4.12 [-8, 8-2^-12]
+    // LMS Adaptation Configurations (Decision-Directed Mode)
+    input  logic                          i_cfg_lms_en,        // 1: Enable LMS weight update, 0: Hold
+    input  logic signed [DATA_WIDTH-1:0]  i_cfg_learning_rate, // Step size mu (Q0.16)
 
-    , output logic [BER_COUNTER_WIDTH-1:0] o_ber_error_bits // [0, 2^BER_COUNTER_WIDTH-1]
-    , output logic [BER_COUNTER_WIDTH-1:0] o_ber_total_bits // [0, 2^BER_COUNTER_WIDTH-1]
-    , output logic               o_ber_ready            // {0, 1}
-    , output logic        [31:0] o_ber_latency          // [0, 2^32-1] clocks
+    // Receiver Monitor Configurations
+    input  logic                          i_cfg_mon_en,        // 1: Enable cyclic pattern BER monitor
+    input  logic                          i_cfg_snapshot_trig, // Pulse to capture current BER metrics into status regs
+
+    // 32-Bit Read Status Registers
+    output logic [31:0]                   o_stat_total_words,  // Total evaluated symbols
+    output logic [31:0]                   o_stat_err_bits      // Total bit errors captured
 );
 
-    logic signed [NUMBER_SYMBOL-1:0][3:0]  TX_sym;      // Q4.0 {-3, -1, +1, +3}
-    logic        [NUMBER_SYMBOL-1:0][1:0]  TX_bits_ref; // U2 {00, 01, 11, 10}
+    // =========================================================================
+    // Inter-Block Interconnect Wires
+    // =========================================================================
+    logic                         tx_valid;
+    logic signed [DATA_WIDTH-1:0] tx_data;
 
-    logic signed [NUMBER_SYMBOL-1:0][7:0]  CH_r;        // Q4.4 [-8, 7.9375]
+    logic                         chan_valid;
+    logic signed [DATA_WIDTH-1:0] chan_data;
 
-    logic signed [NUMBER_SYMBOL-1:0][3:0]  RX_sym;      // Q4.0 {-3, -1, +1, +3}
-    logic        [NUMBER_SYMBOL-1:0][1:0]  RX_bits;     // U2 {00, 01, 11, 10}
-    logic signed [NUMBER_SYMBOL-1:0][15:0] RX_y;        // Q4.12 [-8, 8-2^-12]
-
-    logic signed [15:0] RX_ffe0;     // Q4.12 [-8, 8-2^-12]
-    logic signed [15:0] RX_ffe1;     // Q4.12 [-8, 8-2^-12]
-    logic signed [15:0] RX_ffe2;     // Q4.12 [-8, 8-2^-12]
-    logic signed [15:0] RX_dfe0;     // Q4.12 [-8, 8-2^-12]
-
+    // =========================================================================
+    // 1. Transmitter Block (tx_top) - Member 1 (Dac Huy)
+    // =========================================================================
     tx_top #(
-        .NUMBER_SYMBOL (NUMBER_SYMBOL),
-        .PRBS_SEED     (PRBS_SEED    )
-    ) tx_top (
-        .i_clk      (i_clk      ),
-        .i_rst_n    (i_rst_n    ),
-        .o_sym      (TX_sym     ),
-        .o_bits_ref (TX_bits_ref)
+        .SYMB_BITS  (2),
+        .DATA_WIDTH (DATA_WIDTH),
+        .DATA_FRAC  (DATA_FRAC)
+    ) u_tx_top (
+        .i_clk          (i_clk),
+        .i_rstn         (i_rstn),
+        .i_cfg_tx_en    (i_cfg_tx_en),
+        .o_valid        (tx_valid),
+        .o_tx_sym_raw   (),
+        .o_tx_gray_bits (),
+        .o_tx_data      (tx_data)
     );
 
-    assign o_tx_sym    = TX_sym;
-    assign o_tx_bits   = TX_bits_ref;
-
+    // =========================================================================
+    // 2. Channel Impairment Block (channel_top) - Member 2 (Nhat Huy)
+    // =========================================================================
     channel_top #(
-        .NUMBER_SYMBOL  (NUMBER_SYMBOL ),
-        .H1_Q12         (CHANNEL_H1_Q12),
-        .NOISE_SEED     (NOISE_SEED    ),
-        .DEFAULT_SNR_DB (DEFAULT_SNR_DB)
-    ) channel_top (
-        .i_clk            (i_clk           ),
-        .i_rst_n          (i_rst_n         ),
-        .i_sym            (TX_sym          ),
-        .i_noise_en       (i_noise_en      ),
-        .i_cfg_snr_db     (i_cfg_snr_db    ),
-        .i_cfg_noise_load (i_cfg_noise_load),
-        .o_r              (CH_r            )
+        .DATA_WIDTH (DATA_WIDTH),
+        .DATA_FRAC  (DATA_FRAC)
+    ) u_channel_top (
+        .i_clk            (i_clk),
+        .i_rstn           (i_rstn),
+        .i_valid          (tx_valid),
+        .i_tx_data        (tx_data),
+        .i_cfg_isi_en     (i_cfg_isi_en),
+        .i_cfg_isi_coeff  (i_cfg_isi_coeff),
+        .i_cfg_awgn_en    (i_cfg_awgn_en),
+        .i_cfg_snr_db     (i_cfg_snr_db),
+        .o_valid          (chan_valid),
+        .o_channel_data   (chan_data),
+        .o_clean_isi_data (),
+        .o_awgn_noise     ()
     );
 
-    assign o_channel_r = CH_r;
-
+    // =========================================================================
+    // 3. Receiver Block (rx_top) - Integrated by Member 5 (Quy Hau)
+    // =========================================================================
     rx_top #(
-        .NUMBER_SYMBOL    (NUMBER_SYMBOL      ),
-        .TRAIN_LEN        (TRAIN_LEN          ),
-        .STARTUP_CYCLES   (RX_STARTUP_CYCLES  ),
-        .REF_DELAY_CYCLES (TX_REF_DELAY_CYCLES),
-        .MU_F20           (MU_F20             )
-    ) rx_top (
-        .i_clk    (i_clk  ),
-        .i_rst_n  (i_rst_n),
-        .i_r      (CH_r   ),
-        .i_tx_ref (TX_sym ),
-
-        .i_cfg_ffe0   (i_cfg_ffe0  ),
-        .i_cfg_ffe1   (i_cfg_ffe1  ),
-        .i_cfg_ffe2   (i_cfg_ffe2  ),
-        .i_cfg_dfe0   (i_cfg_dfe0  ),
-        .i_cfg_load   (i_cfg_load  ),
-        .i_adapt_en   (i_adapt_en  ),
-        .i_ffe_bypass (i_ffe_bypass),
-        .i_dfe_bypass (i_dfe_bypass),
-
-        .o_sym  (RX_sym ),
-        .o_bits (RX_bits),
-        .o_y    (RX_y   ),
-        .o_ffe0 (RX_ffe0),
-        .o_ffe1 (RX_ffe1),
-        .o_ffe2 (RX_ffe2),
-        .o_dfe0 (RX_dfe0)
+        .TAG_FFE    (3),
+        .TAG_DFE    (1),
+        .DATA_WIDTH (DATA_WIDTH),
+        .DATA_FRAC  (DATA_FRAC)
+    ) u_rx_top (
+        .i_clk                (i_clk),
+        .i_rstn               (i_rstn),
+        .i_valid              (chan_valid),
+        .i_r_in               (chan_data),
+        .i_cfg_ffe_en         (i_cfg_ffe_en),
+        .i_cfg_dfe_en         (i_cfg_dfe_en),
+        .i_cfg_ffe_w0         (i_cfg_ffe_w0),
+        .i_cfg_ffe_w1         (i_cfg_ffe_w1),
+        .i_cfg_ffe_w2         (i_cfg_ffe_w2),
+        .i_cfg_dfe_b0         (i_cfg_dfe_b0),
+        .i_cfg_lms_en         (i_cfg_lms_en),
+        .i_cfg_learning_rate  (i_cfg_learning_rate),
+        .i_cfg_mon_en         (i_cfg_mon_en),
+        .i_cfg_snapshot_trig  (i_cfg_snapshot_trig),
+        .o_valid              (),
+        .o_data_before_slicer (),
+        .o_sliced_symbol      (),
+        .o_recovered_bits     (),
+        .o_error              (),
+        .o_stat_total_words   (o_stat_total_words),
+        .o_stat_err_bits      (o_stat_err_bits),
+        .o_curr_ffe_w0        (),
+        .o_curr_ffe_w1        (),
+        .o_curr_ffe_w2        (),
+        .o_curr_dfe_b0        ()
     );
 
-    assign o_rx_sym    = RX_sym;
-    assign o_rx_bits   = RX_bits;
-    assign o_rx_y      = RX_y;
-
-    assign o_ffe0      = RX_ffe0;
-    assign o_ffe1      = RX_ffe1;
-    assign o_ffe2      = RX_ffe2;
-    assign o_dfe0      = RX_dfe0;
-
-    localparam integer                       BER_RX_LATENCY      = FFE_LATENCY + DFE_LATENCY + SLICER_LATENCY;
-    localparam integer                       BER_PATH_LATENCY    = CHANNEL_LATENCY + BER_RX_LATENCY;
-    localparam integer                       BER_DELAY_BLOCKS    = FFE_SYMBOL_DELAY / NUMBER_SYMBOL;
-    localparam integer                       BER_DELAY_LANES     = FFE_SYMBOL_DELAY % NUMBER_SYMBOL;
-    localparam integer                       BER_MAX_DELAY       = BER_PATH_LATENCY + BER_DELAY_BLOCKS + ((BER_DELAY_LANES != 0) ? 1 : 0);
-    localparam integer                       BER_TRAIN_SYMBOLS   = BER_SKIP_TRAINING ? TRAIN_LEN : 0;
-    localparam integer                       BER_TRAIN_BASE      = RX_STARTUP_CYCLES + BER_RX_LATENCY;
-    localparam integer                       BER_TRAIN_END       = BER_TRAIN_BASE + BER_TRAIN_SYMBOLS / NUMBER_SYMBOL
-                                                                   + ((BER_TRAIN_SYMBOLS % NUMBER_SYMBOL != 0) ? 1 : 0);
-    localparam integer                       BER_TX_READY        = TX_LATENCY + BER_MAX_DELAY;
-    localparam integer                       BER_AGE_MAX         = (BER_TRAIN_END > BER_TX_READY) ? BER_TRAIN_END
-                                                                   : ((BER_TX_READY < 1) ? 1 : BER_TX_READY);
-    localparam integer                       BER_AGE_WIDTH       = (BER_AGE_MAX < 1) ? 1 : $clog2(BER_AGE_MAX + 1);
-                                                                   localparam integer                       BER_DELAY_WIDTH     = (BER_MAX_DELAY < 1) ? 1 : $clog2(BER_MAX_DELAY + 1);
-    localparam integer                       BER_SETTLE_CYCLES   = (BER_MAX_DELAY < 1) ? 1 : BER_MAX_DELAY;
-    localparam integer                       BER_SETTLE_WIDTH    = $clog2(BER_SETTLE_CYCLES + 1);
-    localparam integer                       BER_INCREMENT_WIDTH = $clog2(64'(NUMBER_SYMBOL) * 2 + 1);
-    localparam logic [BER_COUNTER_WIDTH-1:0] BER_COUNTER_MAX     = {BER_COUNTER_WIDTH{1'b1}};
-
-    logic [NUMBER_SYMBOL-1:0][1:0] ber_tx_history [0:BER_MAX_DELAY];
-    logic [NUMBER_SYMBOL-1:0][1:0] ber_tx_aligned;
-    logic [NUMBER_SYMBOL-1:0][1:0] ber_error_mask;
-    logic [NUMBER_SYMBOL-1:0]      ber_lane_ready;
-    logic [BER_INCREMENT_WIDTH-1:0] ber_error_increment;
-    logic [BER_INCREMENT_WIDTH-1:0] ber_total_increment;
-    logic [BER_AGE_WIDTH-1:0] ber_age;
-    logic [BER_DELAY_WIDTH-1:0] ber_delay;
-    logic [BER_SETTLE_WIDTH-1:0] ber_settle;
-    logic ber_ffe_bypass_q;
-    logic ber_noise_en_q;
-    logic ber_adapt_en_q;
-    logic ber_config_change;
-
-    assign ber_tx_history[0] = TX_bits_ref;
-
-    genvar ber_tap;
-    generate
-        for (ber_tap = 1; ber_tap <= BER_MAX_DELAY; ber_tap = ber_tap + 1) begin : g_ber_tx_delay
-            always_ff @(posedge i_clk or negedge i_rst_n) begin
-                if (!i_rst_n) ber_tx_history[ber_tap] <= '0;
-                else          ber_tx_history[ber_tap] <= ber_tx_history[ber_tap-1];
-            end
-        end
-    endgenerate
-
-    genvar ber_lane;
-    generate
-        for (ber_lane = 0; ber_lane < NUMBER_SYMBOL; ber_lane = ber_lane + 1) begin : g_ber_lane
-            localparam integer REF_BLOCK = BER_PATH_LATENCY + BER_DELAY_BLOCKS
-                                         + ((ber_lane < BER_DELAY_LANES) ? 1 : 0);
-            localparam integer REF_LANE  = (ber_lane + NUMBER_SYMBOL - BER_DELAY_LANES) % NUMBER_SYMBOL;
-            localparam integer TRAIN_END = BER_TRAIN_BASE + BER_TRAIN_SYMBOLS / NUMBER_SYMBOL
-                                         + ((ber_lane < BER_TRAIN_SYMBOLS % NUMBER_SYMBOL) ? 1 : 0);
-
-            assign ber_tx_aligned[ber_lane] = ber_ffe_bypass_q
-                                           ? ber_tx_history[BER_PATH_LATENCY][ber_lane]
-                                           : ber_tx_history[REF_BLOCK][REF_LANE];
-            logic training_ready;
-            logic ffe_reference_ready;
-            logic bypass_reference_ready;
-
-            if (TRAIN_END == 0) begin : g_no_training_wait
-                assign training_ready = 1'b1;
-            end else begin : g_training_wait
-                assign training_ready = ber_age >= BER_AGE_WIDTH'(TRAIN_END);
-            end
-            if (TX_LATENCY + REF_BLOCK == 0) begin : g_no_ffe_wait
-                assign ffe_reference_ready = 1'b1;
-            end else begin : g_ffe_wait
-                assign ffe_reference_ready = ber_age >= BER_AGE_WIDTH'(TX_LATENCY + REF_BLOCK);
-            end
-            if (TX_LATENCY + BER_PATH_LATENCY == 0) begin : g_no_bypass_wait
-                assign bypass_reference_ready = 1'b1;
-            end else begin : g_bypass_wait
-                assign bypass_reference_ready = ber_age >= BER_AGE_WIDTH'(TX_LATENCY + BER_PATH_LATENCY);
-            end
-            assign ber_lane_ready[ber_lane] = training_ready
-                                           && (ber_ffe_bypass_q ? bypass_reference_ready : ffe_reference_ready);
-        end
-    endgenerate
-
-    assign ber_delay = ber_ffe_bypass_q ? BER_DELAY_WIDTH'(BER_PATH_LATENCY)
-                                       : BER_DELAY_WIDTH'(BER_MAX_DELAY);
-    assign o_ber_latency = 32'(ber_delay);
-    assign ber_config_change = i_cfg_load || i_cfg_noise_load
-                             || (i_noise_en != ber_noise_en_q)
-                             || (i_adapt_en != ber_adapt_en_q);
-    assign ber_error_mask = RX_bits ^ ber_tx_aligned;
-    assign o_ber_ready = i_rst_n && !i_ber_clear && !ber_config_change
-                       && (ber_settle == '0) && (|ber_lane_ready);
-
-    always_comb begin
-        ber_error_increment = '0;
-        ber_total_increment = '0;
-        for (integer lane = 0; lane < NUMBER_SYMBOL; lane = lane + 1) begin
-            if (ber_lane_ready[lane]) begin
-                ber_error_increment = ber_error_increment
-                                    + BER_INCREMENT_WIDTH'(ber_error_mask[lane][0])
-                                    + BER_INCREMENT_WIDTH'(ber_error_mask[lane][1]);
-                ber_total_increment = ber_total_increment + BER_INCREMENT_WIDTH'(2);
-            end
-        end
-    end
-
-    always_ff @(posedge i_clk or negedge i_rst_n) begin
-        if (!i_rst_n) begin
-            ber_age          <= '0;
-            ber_settle       <= '0;
-            ber_ffe_bypass_q <= 1'b0;
-            ber_noise_en_q   <= 1'b0;
-            ber_adapt_en_q   <= 1'b0;
-            o_ber_error_bits <= '0;
-            o_ber_total_bits <= '0;
-        end else begin
-            if (ber_age < BER_AGE_WIDTH'(BER_AGE_MAX)) ber_age <= ber_age + 1'b1;
-            if (i_cfg_load) ber_ffe_bypass_q <= i_ffe_bypass;
-            ber_noise_en_q <= i_noise_en;
-            ber_adapt_en_q <= i_adapt_en;
-
-            if (ber_config_change) ber_settle <= BER_SETTLE_WIDTH'(BER_SETTLE_CYCLES);
-            else if (ber_settle != '0) ber_settle <= ber_settle - 1'b1;
-
-            if (i_ber_clear || ber_config_change) begin
-                o_ber_error_bits <= '0;
-                o_ber_total_bits <= '0;
-            end else if (i_ber_en && o_ber_ready
-                         && (o_ber_total_bits <= BER_COUNTER_MAX - BER_COUNTER_WIDTH'(ber_total_increment))) begin
-                o_ber_error_bits <= o_ber_error_bits + BER_COUNTER_WIDTH'(ber_error_increment);
-                o_ber_total_bits <= o_ber_total_bits + BER_COUNTER_WIDTH'(ber_total_increment);
-            end
-        end
-    end
-
-    initial begin
-        if (NUMBER_SYMBOL < 1 || BER_COUNTER_WIDTH < BER_INCREMENT_WIDTH)
-            $fatal(1, "BER requires NUMBER_SYMBOL>=1 and counter capacity for a complete symbol block");
-        if (TX_LATENCY < 0 || CHANNEL_LATENCY < 0 || FFE_LATENCY < 0 || DFE_LATENCY < 0
-            || SLICER_LATENCY < 0 || FFE_SYMBOL_DELAY < 0 || RX_STARTUP_CYCLES < 0
-            || TRAIN_LEN < 0 || BER_COUNTER_WIDTH < 2 || BER_COUNTER_WIDTH > 64)
-            $fatal(1, "Invalid BER latency, training length or counter width");
-    end
-
-endmodule
+endmodule: top
