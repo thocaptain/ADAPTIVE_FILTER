@@ -96,6 +96,12 @@ module rx_ffe #(
     logic signed [31:0] prod_err_x;
     logic signed [47:0] prod_mu;
     logic signed [31:0] delta;
+    always_comb begin
+            prod_err_x = $signed(i_error) * $signed(x_reg[k]);
+            prod_mu    = $signed(i_learning_rate) * $signed(prod_err_x >>> DATA_FRAC);
+            delta      = prod_mu >>> 16; // mu is Q0.16
+
+    end
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
             w_reg[0] <= i_cfg_ffe_w0;
@@ -103,11 +109,6 @@ module rx_ffe #(
             w_reg[2] <= i_cfg_ffe_w2;
         end else if (i_cfg_lms_en && valid_r) begin
             for (int k = 0; k < TAG_FFE; k++) begin
-
-                prod_err_x = $signed(i_error) * $signed(x_reg[k]);
-                prod_mu    = $signed(i_learning_rate) * $signed(prod_err_x >>> DATA_FRAC);
-                delta      = prod_mu >>> 16; // mu is Q0.16
-
                 w_reg[k]   <= sat16($signed({{16{w_reg[k][15]}}, w_reg[k]}) + delta);
             end
         end else if (!i_cfg_lms_en) begin
@@ -140,10 +141,14 @@ module rx_ffe #(
     end
 
     // =========================================================================
-    // Outputs
+    // Outputs Flops
     // =========================================================================
-    assign o_valid    = valid_r;
-    assign o_ffe_data = y_ffe;
+
+    always_ff @(posedge i_clk) begin
+         o_valid    <= valid_r;
+         o_ffe_data <= y_ffe;
+    end
+
     assign o_curr_w0  = w_reg[0];
     assign o_curr_w1  = w_reg[1];
     assign o_curr_w2  = w_reg[2];

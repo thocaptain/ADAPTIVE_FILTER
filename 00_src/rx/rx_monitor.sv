@@ -42,13 +42,20 @@ module rx_monitor #(
     output logic                          o_stat_sync_locked  // 1: Monitor is synchronized with transmitter sequence
 );
 
+    //Flops DIN
+    logic signed [DATA_WIDTH-1:0]  i_sliced_data_r;
+    logic                          i_valid_r;
+    always_ff (@posedge i_clk) begin
+        i_sliced_data_r <= i_sliced_data;
+        i_valid_r       <= i_valid;
+    end
     // =========================================================================
     // 1. PAM-4 Demapper (Q4.12 Level -> 2-Bit Gray Code)
     // =========================================================================
     logic [SYMB_BITS-1:0] rx_gray_bits;
 
     always_comb begin
-        case (i_sliced_data)
+        case (i_sliced_data_r)
             16'shD000: rx_gray_bits = 2'b00; // -3 level
             16'shF000: rx_gray_bits = 2'b01; // -1 level
             16'sh1000: rx_gray_bits = 2'b11; // +1 level
@@ -89,7 +96,7 @@ module rx_monitor #(
             exp_bin_cnt_r       <= '0;
             sync_locked_r       <= 1'b0;
             lock_confidence_cnt <= '0;
-        end else if (i_valid) begin
+        end else if (i_valid_r) begin
             if (!sync_locked_r) begin
                 // Lock initial reference to incoming symbol
                 exp_bin_cnt_r       <= rx_bin_val + 1'b1;
@@ -111,17 +118,21 @@ module rx_monitor #(
     logic [1:0] error_in_this_symb;
 
     always_comb begin
-        if (i_valid && sync_locked_r) begin
             // Compare expected binary with received binary
             bit_diff = rx_bin_val ^ exp_bin_cnt_r;
             // Count number of differing bits (0, 1, or 2)
             error_in_this_symb = {1'b0, bit_diff[1]} + {1'b0, bit_diff[0]};
-        end else begin
-            bit_diff           = 2'b00;
-            error_in_this_symb = 2'b00;
         end
+    //-------------------------------------------------------------------------
+    // 4. Rising-Edge Detector for Snapshot Trigger
+    //-------------------------------------------------------------------------
+    logic        i_cfg_snapshot_trig_d;
+    logic        latch_pulse;
+    always_ff @(posedge i_clk or negedge i_rstn) begin
+        i_cfg_snapshot_trig_d <= i_cfg_snapshot_trig;
     end
 
+    assign latch_pulse = i_cfg_snapshot_trig && !snapshot_trigger_d;
     // =========================================================================
     // 5. Accumulation Counters (Live Free-Running)
     // =========================================================================
@@ -135,9 +146,18 @@ module rx_monitor #(
         end else if (!i_cfg_mon_en) begin
             live_word_cnt_r    <= '0;
             live_err_bit_cnt_r <= '0;
-        end else if (i_valid && sync_locked_r) begin
-            live_word_cnt_r    <= live_word_cnt_r + 1'b1;
-            live_err_bit_cnt_r <= live_err_bit_cnt_r + error_in_this_symb;
+        end else if (latch_pulse) begin
+            if (i_valid_r && sync_locked_r) begin
+                live_word_cnt_r    <= 32'd1;
+                live_err_bit_cnt_r <= 32'(error_in_this_symb);
+            end
+            else begin
+                live_word_cnt_r    <= 32'd0;
+                live_err_bit_cnt_r <= 32'd0;
+            end
+        end else if (i_valid_r && sync_locked_r) begin
+            live_word_cnt_r    <= live_word_cnt_r + 32'd1;
+            live_err_bit_cnt_r <= live_err_bit_cnt_r + 32'(error_in_this_symb);
         end
     end
 
@@ -151,7 +171,7 @@ module rx_monitor #(
         if (!i_rstn) begin
             snap_total_words_r <= '0;
             snap_err_bits_r    <= '0;
-        end else if (i_cfg_snapshot_trig) begin
+        end else if (latch_pulse) begin
             snap_total_words_r <= live_word_cnt_r;
             snap_err_bits_r    <= live_err_bit_cnt_r;
         end

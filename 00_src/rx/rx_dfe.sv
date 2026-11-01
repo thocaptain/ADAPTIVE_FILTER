@@ -84,18 +84,18 @@ module rx_dfe #(
     //    b_0[n+1] = b_0[n] - mu * e[n] * d_hat[n-1]
     //    (Note: Minus sign for negative feedback cancellation)
     // =========================================================================
+            logic signed [31:0] prod_err_d;
+            logic signed [47:0] prod_mu;
+            logic signed [31:0] delta;
+    always_comb begin
+            prod_err_d = $signed(i_error) * $signed(d_prev_r);
+            prod_mu    = $signed(i_learning_rate) * $signed(prod_err_d >>> DATA_FRAC);
+            delta      = prod_mu >>> 16; // mu is Q0.16
+    end
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
             b0_reg <= i_cfg_dfe_b0;
         end else if (i_cfg_lms_en && valid_r) begin
-            logic signed [31:0] prod_err_d;
-            logic signed [47:0] prod_mu;
-            logic signed [31:0] delta;
-
-            prod_err_d = $signed(i_error) * $signed(d_prev_r);
-            prod_mu    = $signed(i_learning_rate) * $signed(prod_err_d >>> DATA_FRAC);
-            delta      = prod_mu >>> 16; // mu is Q0.16
-
             // Feedback update: subtract delta
             b0_reg     <= sat16($signed({{16{b0_reg[15]}}, b0_reg}) - delta);
         end else if (!i_cfg_lms_en) begin
@@ -119,11 +119,14 @@ module rx_dfe #(
         end
     end
 
+ // =========================================================================
+    // Outputs Flops
     // =========================================================================
-    // Outputs
-    // =========================================================================
-    assign o_valid    = valid_r;
-    assign o_dfe_data = y_dfe;
+
+    always_ff @(posedge i_clk) begin
+         o_valid    <= valid_r;
+         o_dfe_data <= y_dfe;
+    end
     assign o_curr_b0  = b0_reg;
 
 endmodule: rx_dfe

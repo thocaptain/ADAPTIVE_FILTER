@@ -94,7 +94,7 @@ module rx_top #(
     logic signed [DATA_WIDTH-1:0] lms_error;
 
     // =========================================================================
-    // 1. Adaptive 3-Tap FFE Submodule (Member 3 - Van Phuc)
+    // 1. Adaptive 3-Tap FFE Submodule (Member 3 - Van Phuc)// Pipeline 2 cycles
     // =========================================================================
     rx_ffe #(
         .TAG_FFE    (TAG_FFE),
@@ -128,7 +128,7 @@ module rx_top #(
     ) u_rx_dfe (
         .i_clk           (i_clk),
         .i_rstn          (i_rstn),
-        .i_valid         (ffe_valid),
+        .i_valid         (i_valid),
         .i_sliced_data   (d_hat),
         .i_cfg_dfe_en    (i_cfg_dfe_en),
         .i_cfg_dfe_b0    (i_cfg_dfe_b0),
@@ -167,6 +167,7 @@ module rx_top #(
     // =========================================================================
     // 5. Error Generation Logic (Decision-Directed): e[n] = d_hat[n] - y[n]
     //    Calculates difference between sliced decision d_hat and equalizer output y
+    // Add pipeline here maybe this is the critical path
     // =========================================================================
     always_comb begin
         error_raw_32 = $signed({{16{d_hat[15]}}, d_hat}) -
