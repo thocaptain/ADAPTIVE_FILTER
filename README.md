@@ -215,6 +215,113 @@ v Pre-Slicer y[n]                     |
   - **Bit Error Counter:** 32-bit register counting mismatched bits (`o_stat_err_bits`).
   - A snapshot trigger (`i_cfg_snapshot_trig`) latches live counters into status registers for non-disruptive readout.
 
+### 3.5. Board-Level TX/ISI/Equalizer Test Sequence
+
+The MicroBlaze application [`20_syn/sw/dut_sequence_test.c`](20_syn/sw/dut_sequence_test.c)
+runs five independent measurements on the board. It asserts DUT reset and
+disables CONTROL before every phase, programs the fixed coefficients, releases
+reset, enables the selected datapath blocks, waits for samples, triggers a
+monitor snapshot, and reads `TOTAL_WORDS` and `ERROR_BITS`.
+
+The test uses the following fixed configuration:
+
+| Parameter | Value |
+| :--- | :--- |
+| AWGN | Disabled |
+| LMS | Disabled |
+| ISI coefficient | 0.5 (Q4.12 = 2048) |
+| FFE weights | W0 = 1.0 (4096), W1 = 0, W2 = 0 |
+| DFE coefficient | B0 = 0.5 (Q4.12 = 2048) |
+| Wait per phase | `SEQUENCE_WAIT_LOOPS` = 2,000,000 software loop iterations |
+
+| Phase | CONTROL | Enabled blocks | Expected result |
+| :--- | :---: | :--- | :--- |
+| TX baseline | `0x24` | TX, monitor | No bit errors; verifies the clean TX-to-RX path. |
+| TX + ISI | `0x64` | TX, ISI, monitor | Nonzero bit errors are expected from ISI. |
+| TX + ISI + FFE | `0x6C` | TX, ISI, FFE, monitor | Report counters only; no pass/fail improvement criterion is applied. |
+| TX + ISI + DFE | `0x74` | TX, ISI, DFE, monitor | Report counters only; DFE uses B0 = 0.5. |
+| TX + ISI + FFE + DFE | `0x7C` | TX, ISI, FFE, DFE, monitor | Report counters only. |
+
+Each phase appears as `INFO` in the UART table. `Words` is the number of
+evaluated symbols, while `Error bits` is the number of mismatched bits. The
+`Expected` column documents the expected behavior; it is not an automatic
+PASS/FAIL criterion. The final ISI message reports whether nonzero errors were
+observed. The wait is a CPU loop count rather than a calibrated time interval,
+so its duration depends on the MicroBlaze clock and build configuration.
+
+#### Sequence Configuration Values
+
+The firmware rewrites the fixed configuration after asserting reset in every
+phase. Values are written as 32-bit AXI words:
+
+| Register | Offset | Written value | Interpretation |
+| :--- | :---: | :---: | :--- |
+| `CONTROL` | `0x00` | `0x00` before setup | Disable all datapath blocks during setup. |
+| `COMMAND` | `0x04` | `0x01` after the sample wait | Trigger one monitor snapshot. |
+| `NOISE_GAIN` | `0x08` | `0` | No AWGN gain; AWGN enable is also off in CONTROL. |
+| `FFE_W0` | `0x0C` | `4096` | Q4.12 = 1.0. |
+| `FFE_W1` | `0x10` | `0` | Q4.12 = 0.0. |
+| `FFE_W2` | `0x14` | `0` | Q4.12 = 0.0. |
+| `DFE_B0` | `0x18` | `2048` | Q4.12 = 0.5. Used when DFE is enabled. |
+| `ISI_COEFF` | `0x1C` | `2048` | Q4.12 = 0.5. Used when ISI is enabled. |
+| `LEARNING_RATE` | `0x24` | `33` | Programmed, but LMS remains disabled. |
+| `DUT_RESET_N` | `0x2C` | `0`, then `1` | Assert reset for setup, then release before enabling the phase. |
+
+CONTROL bits used by the sequence are `MON=bit 2`, `FFE=bit 3`,
+`DFE=bit 4`, `TX=bit 5`, and `ISI=bit 6`. AWGN (bit 0) and LMS (bit 1)
+remain clear in every phase.
+
+#### Overall Board Test Flow
+
+```mermaid
+flowchart TD
+    A([Start MicroBlaze test]) --> B[Phase 1: TX baseline<br/>CONTROL = 0x24<br/>Expected: Words &gt; 0, Error bits = 0]
+    B --> C[Phase 2: TX + ISI<br/>CONTROL = 0x64<br/>Expected: Words &gt; 0, Error bits &gt; 0]
+    C --> D[Phase 3: TX + ISI + FFE<br/>CONTROL = 0x6C<br/>Expected: report counters only]
+    D --> E[Phase 4: TX + ISI + DFE<br/>CONTROL = 0x74<br/>B0 = 0.5<br/>Expected: report counters only]
+    E --> F[Phase 5: TX + ISI + FFE + DFE<br/>CONTROL = 0x7C<br/>B0 = 0.5<br/>Expected: report counters only]
+    F --> G[Print five rows: Words, Error bits, INFO]
+    G --> H[Print ISI check: errors observed or not observed]
+    H --> I[Disable CONTROL and assert DUT reset]
+    I --> J([Remain in terminal loop])
+```
+
+#### Per-Phase Measurement Flow
+
+The same measurement procedure is executed for each of the five CONTROL
+values above. `configure_fixed_weights()` runs after reset is asserted in
+every phase; coefficients therefore start from the listed fixed values for
+each measurement, not from values left by the preceding phase.
+
+```mermaid
+flowchart TD
+    A([Begin phase]) --> B[Write CONTROL = 0]
+    B --> C[Write DUT_RESET_N = 0]
+    C --> D[Wait 2,000,000 loop iterations]
+    D --> E[Write fixed config:<br/>NOISE_GAIN = 0<br/>FFE = 4096, 0, 0<br/>DFE_B0 = 2048<br/>ISI_COEFF = 2048<br/>LEARNING_RATE = 33]
+    E --> F[Write DUT_RESET_N = 1]
+    F --> G[Write phase CONTROL mask]
+    G --> H[Wait 2,000,000 loop iterations]
+    H --> I[Write COMMAND = 1<br/>capture monitor snapshot]
+    I --> J[Read ERROR_BITS and TOTAL_WORDS]
+    J --> K[Print row with INFO]
+    K --> L([Begin next phase or finish])
+```
+
+#### Per-Phase Expected Results
+
+| Phase | Expected `TOTAL_WORDS` | Expected `ERROR_BITS` | UART status |
+| :--- | :--- | :--- | :--- |
+| TX baseline | Nonzero | `0` | `INFO` |
+| TX + ISI | Nonzero | Nonzero due to configured ISI | `INFO` |
+| TX + ISI + FFE | Nonzero | Informational; no threshold | `INFO` |
+| TX + ISI + DFE | Nonzero | Informational; no threshold | `INFO` |
+| TX + ISI + FFE + DFE | Nonzero | Informational; no threshold | `INFO` |
+
+These are behavioral expectations, not enforced pass/fail assertions. In
+particular, the FFE and DFE rows are for comparing measured counters; this
+sequence does not claim that the fixed coefficients improve BER.
+
 ---
 
 ## 4. Hardware Pipelining Strategy & L.O.3 Compliance
