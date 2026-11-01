@@ -43,6 +43,7 @@ module adaptive_eq_axi_regs #(
     , output logic signed [15:0] o_cfg_isi_coeff
     , output logic signed [15:0] o_cfg_learning_rate
     , output logic o_cfg_snapshot_trig
+    , output logic o_cfg_dut_reset_n
     , input logic [31:0] i_stat_total_words
     , input logic [31:0] i_stat_err_bits
 );
@@ -57,8 +58,10 @@ module adaptive_eq_axi_regs #(
     localparam logic [C_S_AXI_ADDR_WIDTH-1:0] REG_LEARNING_RATE = 'h24;
     localparam logic [C_S_AXI_ADDR_WIDTH-1:0] REG_ERROR_BITS = 'h20;
     localparam logic [C_S_AXI_ADDR_WIDTH-1:0] REG_TOTAL_WORDS = 'h28;
+    localparam logic [C_S_AXI_ADDR_WIDTH-1:0] REG_DUT_RESET_N = 'h2c;
     localparam logic [1:0] AXI_OKAY = 2'b00, AXI_SLVERR = 2'b10;
     logic [C_S_AXI_ADDR_WIDTH-1:0] axi_awaddr;
+    logic [C_S_AXI_ADDR_WIDTH-1:0] axi_awaddr_word, axi_araddr_word;
     logic [31:0] axi_wdata, write_mask, reg_data_out, control_q;
     logic [3:0] axi_wstrb;
     logic axi_aw_pending, axi_w_pending, slv_reg_wren;
@@ -73,6 +76,12 @@ module adaptive_eq_axi_regs #(
     assign o_cfg_tx_en = control_q[5];
     assign o_cfg_isi_en = control_q[6];
 
+    // CPU byte/halfword accesses may carry AWADDR/ARADDR low bits, e.g. a
+    // store to register+1. Decode the containing 32-bit register; WSTRB selects
+    // the written byte lanes. Read data remains a full word for master extraction.
+    assign axi_awaddr_word = {axi_awaddr[C_S_AXI_ADDR_WIDTH-1:2], 2'b00};
+    assign axi_araddr_word = {S_AXI_ARADDR[C_S_AXI_ADDR_WIDTH-1:2], 2'b00};
+
     // One outstanding write; address and data may arrive in either order.
     assign S_AXI_AWREADY = S_AXI_ARESETN && !axi_aw_pending && !S_AXI_BVALID;
     assign S_AXI_WREADY  = S_AXI_ARESETN && !axi_w_pending  && !S_AXI_BVALID;
@@ -82,8 +91,8 @@ module adaptive_eq_axi_regs #(
 
     always_comb begin
         reg_write_resp = AXI_OKAY;
-        case (axi_awaddr)
-            REG_CONTROL, REG_COMMAND, REG_NOISE_GAIN, REG_CFG_FFE_W0, REG_CFG_FFE_W1, REG_CFG_FFE_W2, REG_CFG_DFE_B0, REG_ISI_COEFF, REG_LEARNING_RATE: ;
+        case (axi_awaddr_word)
+            REG_CONTROL, REG_COMMAND, REG_NOISE_GAIN, REG_CFG_FFE_W0, REG_CFG_FFE_W1, REG_CFG_FFE_W2, REG_CFG_DFE_B0, REG_ISI_COEFF, REG_LEARNING_RATE, REG_DUT_RESET_N: ;
             default: reg_write_resp = AXI_SLVERR;
         endcase
     end
@@ -132,13 +141,15 @@ module adaptive_eq_axi_regs #(
             o_cfg_isi_coeff <= 16'd2048;
             o_cfg_learning_rate <= 16'd33;
             o_cfg_snapshot_trig <= 1'b0;
+            o_cfg_dut_reset_n <= 1'b0; // Hold DUT reset until software configures/releases it.
         end else begin
             o_cfg_snapshot_trig <= 1'b0;
             if (slv_reg_wren && reg_write_resp == AXI_OKAY) begin
-                case (axi_awaddr)
+                case (axi_awaddr_word)
                     REG_CONTROL: control_q <= ((control_q & ~write_mask)
                                               | (axi_wdata & write_mask)) & 32'h7f;
                     REG_COMMAND: if (axi_wstrb[0]) o_cfg_snapshot_trig <= axi_wdata[0];
+                    REG_DUT_RESET_N: if (axi_wstrb[0]) o_cfg_dut_reset_n <= axi_wdata[0];
                     REG_NOISE_GAIN: begin
                         if (axi_wstrb[0]) o_cfg_snr_db[7:0] <= axi_wdata[7:0];
                         if (axi_wstrb[1]) o_cfg_snr_db[15:8] <= axi_wdata[15:8];
@@ -178,7 +189,7 @@ module adaptive_eq_axi_regs #(
     always_comb begin
         reg_data_out = '0;
         reg_read_resp = AXI_OKAY;
-        case (S_AXI_ARADDR)
+        case (axi_araddr_word)
             REG_CONTROL: reg_data_out = control_q;
             REG_COMMAND: reg_data_out = '0;
             REG_NOISE_GAIN: reg_data_out = {16'd0, o_cfg_snr_db};
@@ -190,6 +201,7 @@ module adaptive_eq_axi_regs #(
             REG_LEARNING_RATE: reg_data_out = {16'd0, o_cfg_learning_rate};
             REG_ERROR_BITS: reg_data_out = i_stat_err_bits;
             REG_TOTAL_WORDS: reg_data_out = i_stat_total_words;
+            REG_DUT_RESET_N: reg_data_out = {31'd0, o_cfg_dut_reset_n};
             default: reg_read_resp = AXI_SLVERR;
         endcase
     end

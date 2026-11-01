@@ -45,7 +45,7 @@ module rx_monitor #(
     //Flops DIN
     logic signed [DATA_WIDTH-1:0]  i_sliced_data_r;
     logic                          i_valid_r;
-    always_ff (@posedge i_clk) begin
+    always_ff @(posedge i_clk) begin
         i_sliced_data_r <= i_sliced_data;
         i_valid_r       <= i_valid;
     end
@@ -129,10 +129,13 @@ module rx_monitor #(
     logic        i_cfg_snapshot_trig_d;
     logic        latch_pulse;
     always_ff @(posedge i_clk or negedge i_rstn) begin
-        i_cfg_snapshot_trig_d <= i_cfg_snapshot_trig;
+        if (!i_rstn)
+            i_cfg_snapshot_trig_d <= 1'b0;
+        else
+            i_cfg_snapshot_trig_d <= i_cfg_snapshot_trig;
     end
 
-    assign latch_pulse = i_cfg_snapshot_trig && !snapshot_trigger_d;
+    assign latch_pulse = i_cfg_snapshot_trig && !i_cfg_snapshot_trig_d;
     // =========================================================================
     // 5. Accumulation Counters (Live Free-Running)
     // =========================================================================

@@ -93,14 +93,15 @@ module rx_ffe #(
     //    (Multipliers and saturation logic mapped cleanly for FPGA DSP slices)
     // delta = (mu * e * x)
     // Member 3 can fine-tune bit-true fixed-point scaling here
-    logic signed [31:0] prod_err_x;
-    logic signed [47:0] prod_mu;
-    logic signed [31:0] delta;
+    logic signed [31:0] prod_err_x [0:TAG_FFE-1];
+    logic signed [47:0] prod_mu [0:TAG_FFE-1];
+    logic signed [31:0] delta [0:TAG_FFE-1];
     always_comb begin
-            prod_err_x = $signed(i_error) * $signed(x_reg[k]);
-            prod_mu    = $signed(i_learning_rate) * $signed(prod_err_x >>> DATA_FRAC);
-            delta      = prod_mu >>> 16; // mu is Q0.16
-
+        for (int k = 0; k < TAG_FFE; k++) begin
+            prod_err_x[k] = $signed(i_error) * $signed(x_reg[k]);
+            prod_mu[k]    = $signed(i_learning_rate) * $signed(prod_err_x[k] >>> DATA_FRAC);
+            delta[k]      = prod_mu[k] >>> 16; // mu is Q0.16
+        end
     end
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
@@ -109,7 +110,7 @@ module rx_ffe #(
             w_reg[2] <= i_cfg_ffe_w2;
         end else if (i_cfg_lms_en && valid_r) begin
             for (int k = 0; k < TAG_FFE; k++) begin
-                w_reg[k]   <= sat16($signed({{16{w_reg[k][15]}}, w_reg[k]}) + delta);
+                w_reg[k]   <= sat16($signed({{16{w_reg[k][15]}}, w_reg[k]}) + delta[k]);
             end
         end else if (!i_cfg_lms_en) begin
             // Hold or reload initial weights when adaptation is disabled

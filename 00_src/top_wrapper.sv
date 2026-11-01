@@ -30,6 +30,7 @@ module top_wrapper #(
 
 );
     logic cfg_awgn_en, cfg_lms_en, cfg_mon_en, cfg_ffe_en, cfg_dfe_en, cfg_tx_en, cfg_isi_en, cfg_snapshot_trig;
+    logic cfg_dut_reset_n;
     logic [15:0] cfg_snr_db;
     logic signed [15:0] cfg_ffe_w0;
     logic signed [15:0] cfg_ffe_w1;
@@ -80,12 +81,13 @@ module top_wrapper #(
         .o_cfg_isi_coeff(cfg_isi_coeff),
         .o_cfg_learning_rate(cfg_learning_rate),
         .o_cfg_snapshot_trig(cfg_snapshot_trig),
+        .o_cfg_dut_reset_n(cfg_dut_reset_n),
         .i_stat_total_words(stat_total_words),
         .i_stat_err_bits(stat_err_bits)
     );
 
     top #(.DATA_WIDTH(16), .DATA_FRAC(12)) core (
-        .i_clk(S_AXI_ACLK), .i_rstn(S_AXI_ARESETN),
+        .i_clk(S_AXI_ACLK), .i_rstn(cfg_dut_reset_n),
         .i_cfg_awgn_en(cfg_awgn_en),
         .i_cfg_lms_en(cfg_lms_en),
         .i_cfg_mon_en(cfg_mon_en),
