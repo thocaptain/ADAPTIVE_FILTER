@@ -104,6 +104,7 @@ module channel_top #(
     //    (TODO: Member 2 connects detailed 12-lane Taus88 sub-modules here)
     // =========================================================================
     logic signed [DATA_WIDTH-1:0] awgn_sample;
+    logic signed [DATA_WIDTH-1:0] awgn_din; //From ISI
     logic                         awgn_valid;
 
     // Temporary placeholder / hook for Member 2's full CLT Taus88 block
@@ -111,11 +112,20 @@ module channel_top #(
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
             awgn_sample <= '0;
-            awgn_valid  <= 1'b0;
         end else begin
-            awgn_valid  <= isi_valid_r;
             // Member 2 will connect the verified CLT adder-tree output here
             awgn_sample <= 16'sh0000;
+        end
+    end
+
+    //Flops r_clean
+    always_ff @(posedge i_clk or negedge i_rstn) begin
+        if (!i_rstn) begin
+            awgn_valid  <= 1'b0;
+            awgn_din    <= '0;
+        end else begin
+            awgn_valid <= isi_valid_r;
+            awgn_din   <= r_clean;
         end
     end
 
@@ -133,18 +143,18 @@ module channel_top #(
         scaled_noise    = scaled_noise_32 >>> DATA_FRAC;
 
         if (i_cfg_awgn_en) begin
-            r_noisy_32 = $signed({{16{r_clean[15]}}, r_clean}) +
+            r_noisy_32 = $signed({{16{awgn_din[15]}}, awgn_din}) +
                          $signed({{16{scaled_noise[15]}}, scaled_noise});
         end else begin
-            r_noisy_32 = $signed({{16{r_clean[15]}}, r_clean});
+            r_noisy_32 = $signed({{16{awgn_din[15]}}, awgn_din});
         end
     end
 
     // =========================================================================
     // Outputs
     // =========================================================================
-    assign o_valid          = isi_valid_r;
-    assign o_clean_isi_data = r_clean;
+    assign o_valid          = awgn_valid;
+    assign o_clean_isi_data = awgn_din;
     assign o_awgn_noise     = scaled_noise;
     assign o_channel_data   = sat16(r_noisy_32);
 
