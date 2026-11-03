@@ -33,6 +33,7 @@ module rx_dfe #(
 
     // LMS Adaptation Signals (from rx_top)
     input  logic                          i_cfg_lms_en,       // 1: Adapt feedback weight via LMS, 0: Hold
+    input  logic                          i_error_valid,      // Error belongs to the current RX output
     input  logic signed [DATA_WIDTH-1:0]  i_error,            // Error e[n] from rx_top (Q4.12)
     input  logic signed [DATA_WIDTH-1:0]  i_learning_rate,    // Step-size mu (Q0.16)
 
@@ -46,14 +47,31 @@ module rx_dfe #(
     // Helper Saturation Function
     // =========================================================================
     function automatic logic signed [DATA_WIDTH-1:0] sat16(
-        input logic signed [31:0] val
+        input logic signed [63:0] val
     );
-        if (val > 32'sd32767)
-            sat16 = 16'sh7FFF;
-        else if (val < -32'sd32768)
-            sat16 = 16'sh8000;
+        if (val > ((64'sd1 <<< (DATA_WIDTH-1)) - 1))
+            sat16 = {1'b0, {(DATA_WIDTH-1){1'b1}}};
+        else if (val < -(64'sd1 <<< (DATA_WIDTH-1)))
+            sat16 = {1'b1, {(DATA_WIDTH-1){1'b0}}};
         else
-            sat16 = val[15:0];
+            sat16 = val[DATA_WIDTH-1:0];
+    endfunction
+
+    function automatic logic signed [63:0] round_shift(
+        input logic signed [63:0] value, input integer shift
+    );
+        if (shift <= 0)
+            round_shift = value <<< (-shift);
+        else if (value < 0)
+            round_shift = -(((-value) + (64'sd1 <<< (shift-1))) >>> shift);
+        else
+            round_shift = (value + (64'sd1 <<< (shift-1))) >>> shift;
+    endfunction
+
+    function automatic logic signed [39:0] sat40(input logic signed [63:0] value);
+        if (value > 64'sd549755813887) sat40 = 40'sh7FFFFFFFFF;
+        else if (value < -64'sd549755813888) sat40 = 40'sh8000000000;
+        else sat40 = value[39:0];
     endfunction
 
     // =========================================================================
@@ -78,28 +96,30 @@ module rx_dfe #(
     // 2. Feedback Tap Weight Register (b0)
     // =========================================================================
     logic signed [DATA_WIDTH-1:0] b0_reg;
+    logic signed [39:0] b0_acc; // Q20 internal adaptation precision
 
     // =========================================================================
     // 3. Embedded LMS Weight Adaptation for DFE
     //    b_0[n+1] = b_0[n] - mu * e[n] * d_hat[n-1]
     //    (Note: Minus sign for negative feedback cancellation)
     // =========================================================================
-            logic signed [31:0] prod_err_d;
-            logic signed [47:0] prod_mu;
-            logic signed [31:0] delta;
+    logic signed [2*DATA_WIDTH-1:0] prod_err_d;
+    logic signed [3*DATA_WIDTH-1:0] prod_mu;
+    logic signed [39:0] delta;
     always_comb begin
-            prod_err_d = $signed(i_error) * $signed(d_prev_r);
-            prod_mu    = $signed(i_learning_rate) * $signed(prod_err_d >>> DATA_FRAC);
-            delta      = prod_mu >>> 16; // mu is Q0.16
+        prod_err_d = $signed(i_error) * $signed(d_prev_r);
+        prod_mu = $signed(i_learning_rate) * $signed(prod_err_d);
+        delta = sat40(round_shift(64'($signed(prod_mu)), 16+2*DATA_FRAC-20));
+        b0_reg = sat16(round_shift(64'($signed(b0_acc)), 20-DATA_FRAC));
     end
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
-            b0_reg <= i_cfg_dfe_b0;
-        end else if (i_cfg_lms_en && valid_r) begin
+            b0_acc <= sat40(64'($signed(i_cfg_dfe_b0)) <<< (20-DATA_FRAC));
+        end else if (i_cfg_lms_en && i_error_valid) begin
             // Feedback update: subtract delta
-            b0_reg     <= sat16($signed({{16{b0_reg[15]}}, b0_reg}) - delta);
+            b0_acc <= sat40(64'($signed(b0_acc)) - 64'($signed(delta)));
         end else if (!i_cfg_lms_en) begin
-            b0_reg <= i_cfg_dfe_b0;
+            b0_acc <= sat40(64'($signed(i_cfg_dfe_b0)) <<< (20-DATA_FRAC));
         end
     end
 
@@ -113,20 +133,19 @@ module rx_dfe #(
         mul_dfe_32 = $signed(d_prev_r) * $signed(b0_reg);
 
         if (i_cfg_dfe_en) begin
-            y_dfe = sat16(mul_dfe_32 >>> DATA_FRAC);
+            y_dfe = sat16(64'($signed(mul_dfe_32)) >>> DATA_FRAC);
         end else begin
             y_dfe = 16'sh0000; // Disable feedback
         end
     end
 
- // =========================================================================
-    // Outputs Flops
     // =========================================================================
-
-    always_ff @(posedge i_clk) begin
-         o_valid    <= valid_r;
-         o_dfe_data <= y_dfe;
-    end
+    // Feedback must have exactly one decision register in the loop.
+    // A second output flop would use d_hat[n-2] at the RX summer.
+    // Keep the multiply combinational after d_prev_r.
+    // =========================================================================
+    assign o_valid    = valid_r;
+    assign o_dfe_data = y_dfe;
     assign o_curr_b0  = b0_reg;
 
 endmodule: rx_dfe

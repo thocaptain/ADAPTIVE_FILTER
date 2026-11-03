@@ -4,7 +4,8 @@
 // Exposes only top's actual runtime controls and two 32-bit snapshot counters.
 module top_wrapper #(
     parameter integer C_S_AXI_DATA_WIDTH = 32,
-    parameter integer C_S_AXI_ADDR_WIDTH = 8
+    parameter integer C_S_AXI_ADDR_WIDTH = 8,
+    parameter integer TRAIN_LEN = 3000
 )(
       input  logic                            S_AXI_ACLK
     , input  logic                            S_AXI_ARESETN
@@ -86,7 +87,7 @@ module top_wrapper #(
         .i_stat_err_bits(stat_err_bits)
     );
 
-    top #(.DATA_WIDTH(16), .DATA_FRAC(12)) core (
+    top #(.DATA_WIDTH(16), .DATA_FRAC(12), .TRAIN_LEN(TRAIN_LEN)) core (
         .i_clk(S_AXI_ACLK), .i_rstn(cfg_dut_reset_n),
         .i_cfg_awgn_en(cfg_awgn_en),
         .i_cfg_lms_en(cfg_lms_en),

@@ -13,7 +13,8 @@
 
 module top #(
     parameter int DATA_WIDTH = 16,
-    parameter int DATA_FRAC  = 12
+    parameter int DATA_FRAC  = 12,
+    parameter int TRAIN_LEN  = 3000
 )(
     // Primary Clock & Active-Low Asynchronous Reset
     input  logic                          i_clk,
@@ -36,7 +37,7 @@ module top #(
     input  logic signed [DATA_WIDTH-1:0]  i_cfg_ffe_w2,        // FFE tap 2 weight (Q4.12)
     input  logic signed [DATA_WIDTH-1:0]  i_cfg_dfe_b0,        // DFE tap 0 feedback weight (Q4.12)
 
-    // LMS Adaptation Configurations (Decision-Directed Mode)
+    // LMS: TRAIN_LEN known-symbol updates, then decision-directed
     input  logic                          i_cfg_lms_en,        // 1: Enable LMS weight update, 0: Hold
     input  logic signed [DATA_WIDTH-1:0]  i_cfg_learning_rate, // Step size mu (Q0.16)
 
@@ -57,6 +58,19 @@ module top #(
 
     logic                         chan_valid;
     logic signed [DATA_WIDTH-1:0] chan_data;
+    logic signed [DATA_WIDTH-1:0] train_ref_isi, train_ref_channel;
+
+    // Match the two channel stages: curr_s_r, then awgn_din. Preserve the
+    // actual TX symbol through pauses; do not infer it from a cyclic counter.
+    always_ff @(posedge i_clk or negedge i_rstn) begin
+        if (!i_rstn) begin
+            train_ref_isi <= '0;
+            train_ref_channel <= '0;
+        end else begin
+            if (tx_valid) train_ref_isi <= tx_data;
+            train_ref_channel <= train_ref_isi;
+        end
+    end
 
     // =========================================================================
     // 1. Transmitter Block (tx_top) - Member 1 (Dac Huy)
@@ -103,12 +117,14 @@ module top #(
         .TAG_FFE    (3),
         .TAG_DFE    (1),
         .DATA_WIDTH (DATA_WIDTH),
-        .DATA_FRAC  (DATA_FRAC)
+        .DATA_FRAC  (DATA_FRAC),
+        .TRAIN_LEN  (TRAIN_LEN)
     ) u_rx_top (
         .i_clk                (i_clk),
         .i_rstn               (i_rstn),
         .i_valid              (chan_valid),
         .i_r_in               (chan_data),
+        .i_train_ref          (train_ref_channel),
         .i_cfg_ffe_en         (i_cfg_ffe_en),
         .i_cfg_dfe_en         (i_cfg_dfe_en),
         .i_cfg_ffe_w0         (i_cfg_ffe_w0),
@@ -124,6 +140,7 @@ module top #(
         .o_sliced_symbol      (),
         .o_recovered_bits     (),
         .o_error              (),
+        .o_training           (),
         .o_stat_total_words   (o_stat_total_words),
         .o_stat_err_bits      (o_stat_err_bits),
         .o_curr_ffe_w0        (),

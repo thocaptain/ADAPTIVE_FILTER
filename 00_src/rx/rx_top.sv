@@ -9,7 +9,7 @@
 //                2. Adaptive 1-Tap Decision Feedback Equalizer (rx_dfe)
 //                3. Equalizer Summer: y[n] = y_ffe[n] - y_dfe[n]
 //                4. PAM-4 Slicer (Decision comparator for -3, -1, +1, +3)
-//                5. LMS Error Computation: e[n] = d_hat[n] - y[n] (Decision-Directed Mode)
+//                5. Known-symbol training, then decision-directed LMS
 //                6. Cyclic Pattern BER Monitor & Status Reporting (rx_monitor)
 // =============================================================================
 
@@ -19,7 +19,8 @@ module rx_top #(
     parameter int TAG_FFE    = 3,
     parameter int TAG_DFE    = 1,
     parameter int DATA_WIDTH = 16,
-    parameter int DATA_FRAC  = 12
+    parameter int DATA_FRAC  = 12,
+    parameter int TRAIN_LEN  = 3000
 )(
     // Clock & Active-Low Reset
     input  logic                          i_clk,
@@ -28,6 +29,7 @@ module rx_top #(
     // Channel Input Data
     input  logic                          i_valid,
     input  logic signed [DATA_WIDTH-1:0]  i_r_in,                  // Noisy received sample (Q4.12)
+    input  logic signed [DATA_WIDTH-1:0]  i_train_ref,             // TX reference aligned with i_r_in
 
     // Equalizer Configuration & Initial Weights
     input  logic                          i_cfg_ffe_en,            // 1: Enable FFE, 0: Bypass
@@ -37,7 +39,7 @@ module rx_top #(
     input  logic signed [DATA_WIDTH-1:0]  i_cfg_ffe_w2,            // Initial weight w2 (Q4.12)
     input  logic signed [DATA_WIDTH-1:0]  i_cfg_dfe_b0,            // Initial feedback weight b0 (Q4.12)
 
-    // LMS Adaptation Controls (Decision-Directed Mode)
+    // LMS: first TRAIN_LEN valid outputs use i_train_ref, then slicer target
     input  logic                          i_cfg_lms_en,            // 1: Enable LMS weight update, 0: Hold
     input  logic signed [DATA_WIDTH-1:0]  i_cfg_learning_rate,     // Step size mu (Q0.16)
 
@@ -51,6 +53,7 @@ module rx_top #(
     output logic signed [DATA_WIDTH-1:0]  o_sliced_symbol,         // Hard symbol decision d_hat[n]
     output logic [1:0]                    o_recovered_bits,        // Recovered binary data (0, 1, 2, 3)
     output logic signed [DATA_WIDTH-1:0]  o_error,                 // Saturated LMS error e[n]
+    output logic                          o_training,              // Current valid output uses known TX target
 
     // 32-Bit Read Status Registers
     output logic [31:0]                   o_stat_total_words,      // Total words evaluated by monitor
@@ -92,9 +95,29 @@ module rx_top #(
 
     logic signed [31:0]           error_raw_32;
     logic signed [DATA_WIDTH-1:0] lms_error;
+    logic signed [DATA_WIDTH-1:0] train_ref_r;
+    logic signed [DATA_WIDTH-1:0] desired;
+    localparam int TRAIN_COUNT_WIDTH = (TRAIN_LEN < 1) ? 1 : $clog2(TRAIN_LEN+1);
+    logic [TRAIN_COUNT_WIDTH-1:0] train_count;
+
+    // Reference traverses the same sample register as FFE input. Count only
+    // valid errors actually consumed by LMS, including the final flush.
+    always_ff @(posedge i_clk or negedge i_rstn) begin
+        if (!i_rstn) begin
+            train_ref_r <= '0;
+            train_count <= '0;
+        end else begin
+            if (i_valid) train_ref_r <= i_train_ref;
+            if (!i_cfg_lms_en) train_count <= '0;
+            else if (ffe_valid && (32'(train_count) < TRAIN_LEN))
+                train_count <= train_count + 1'b1;
+        end
+    end
+    assign o_training = i_cfg_lms_en && ffe_valid && (32'(train_count) < TRAIN_LEN);
+    assign desired = o_training ? train_ref_r : d_hat;
 
     // =========================================================================
-    // 1. Adaptive 3-Tap FFE Submodule (Member 3 - Van Phuc)// Pipeline 2 cycles
+    // 1. Adaptive 3-Tap FFE: one sample register, no extra output register
     // =========================================================================
     rx_ffe #(
         .TAG_FFE    (TAG_FFE),
@@ -128,11 +151,14 @@ module rx_top #(
     ) u_rx_dfe (
         .i_clk           (i_clk),
         .i_rstn          (i_rstn),
-        .i_valid         (i_valid),
+        // d_hat belongs to the FFE output, not the channel input.
+        // Capture only real decisions, including the final pipeline flush.
+        .i_valid         (ffe_valid),
         .i_sliced_data   (d_hat),
         .i_cfg_dfe_en    (i_cfg_dfe_en),
         .i_cfg_dfe_b0    (i_cfg_dfe_b0),
         .i_cfg_lms_en    (i_cfg_lms_en),
+        .i_error_valid   (ffe_valid),
         .i_error         (lms_error),
         .i_learning_rate (i_cfg_learning_rate),
         .o_valid         (dfe_valid),
@@ -153,11 +179,11 @@ module rx_top #(
     //    Thresholds: -2.0 (16'shE000), 0.0 (16'sh0000), +2.0 (16'sh2000)
     // =========================================================================
     always_comb begin
-        if (y_pre_slicer < -16'sh2000) begin
+        if (y_pre_slicer <= -16'sh2000) begin
             d_hat = 16'shD000; // -3 level
-        end else if (y_pre_slicer < 16'sh0000) begin
+        end else if (y_pre_slicer <= 16'sh0000) begin
             d_hat = 16'shF000; // -1 level
-        end else if (y_pre_slicer < 16'sh2000) begin
+        end else if (y_pre_slicer <= 16'sh2000) begin
             d_hat = 16'sh1000; // +1 level
         end else begin
             d_hat = 16'sh3000; // +3 level
@@ -165,12 +191,11 @@ module rx_top #(
     end
 
     // =========================================================================
-    // 5. Error Generation Logic (Decision-Directed): e[n] = d_hat[n] - y[n]
-    //    Calculates difference between sliced decision d_hat and equalizer output y
-    // Add pipeline here maybe this is the critical path
+    // 5. Error: known TX reference during training, then slicer decision.
+    // It remains aligned with the sample held in the FFE/DFE gradient state.
     // =========================================================================
     always_comb begin
-        error_raw_32 = $signed({{16{d_hat[15]}}, d_hat}) -
+        error_raw_32 = $signed({{16{desired[15]}}, desired}) -
                        $signed({{16{y_pre_slicer[15]}}, y_pre_slicer});
         lms_error    = sat16(error_raw_32);
     end

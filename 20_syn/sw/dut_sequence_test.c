@@ -1,6 +1,8 @@
-/* Bare-metal MicroBlaze test for TX, ISI, and fixed-weight FFE/DFE phases.
+/* Bare-metal MicroBlaze test for TX, ISI, fixed weights and LMS training.
  * Add this file as the only main() in a Vitis standalone application.
  * BSP stdout must use axi_uartlite_0.
+ * Rebuild hardware from the current RTL with TRAIN_LEN=3000 first.
+ * AXI tap registers contain configured seeds, NOT the learned current taps.
  */
 #include <stdint.h>
 #include "xparameters.h"
@@ -13,13 +15,25 @@
 #elif defined(XPAR_DUT_0_BASEADDR)
 #define DUT_BASEADDR XPAR_DUT_0_BASEADDR
 #else
-#define DUT_BASEADDR 0x44A00000U
+#define DUT_BASEADDR 0x44A10000U
 #define DUT_BASE_FALLBACK 1
 #endif
 #endif
 
 #ifndef SEQUENCE_WAIT_LOOPS
 #define SEQUENCE_WAIT_LOOPS 2000000U
+#endif
+#ifndef SEQUENCE_SETTLE_LOOPS
+#define SEQUENCE_SETTLE_LOOPS SEQUENCE_WAIT_LOOPS
+#endif
+#ifndef SEQUENCE_LMS_WINDOWS
+#define SEQUENCE_LMS_WINDOWS 3U
+#endif
+#ifndef SEQUENCE_MIN_WORDS
+#define SEQUENCE_MIN_WORDS 4096U
+#endif
+#if SEQUENCE_LMS_WINDOWS < 1
+#error "SEQUENCE_LMS_WINDOWS must be positive"
 #endif
 
 enum {
@@ -36,6 +50,7 @@ enum {
     REG_TOTAL_WORDS = 0x28,
     REG_DUT_RESET_N = 0x2c,
 
+    CTRL_LMS = 1U << 1,
     CTRL_MON = 1U << 2,
     CTRL_FFE = 1U << 3,
     CTRL_DFE = 1U << 4,
@@ -72,6 +87,26 @@ static void wait_for_samples(void)
     }
 }
 
+static void wait_for_learning(void)
+{
+    /* Bounded software delay, not a calibrated symbol count. At the normal
+     * shared 20 MHz CPU/DUT clock this budget greatly exceeds 3000 training
+     * symbols and the 200000-symbol simulation settling interval. */
+    for (volatile uint32_t i = 0; i < SEQUENCE_SETTLE_LOOPS; ++i) {
+    }
+}
+
+static struct phase_result snapshot(void)
+{
+    struct phase_result result;
+    write_reg(REG_COMMAND, 1);
+    (void)read_reg(REG_COMMAND); /* Ordered AXI read lets snapshot propagate. */
+    result.error_bits = read_reg(REG_ERROR_BITS);
+    result.words = read_reg(REG_TOTAL_WORDS);
+    /* Current rx_monitor snapshots then starts a new live-counter window. */
+    return result;
+}
+
 static void configure_fixed_weights(void)
 {
     write_reg(REG_NOISE_GAIN, 0);
@@ -80,7 +115,7 @@ static void configure_fixed_weights(void)
     write_reg(REG_FFE_W2, 0);
     write_reg(REG_DFE_B0, 2048U); /* Q4.12 = 0.5. */
     write_reg(REG_ISI_COEFF, 2048U); /* Q4.12 = 0.5. */
-    write_reg(REG_LEARNING_RATE, 33U);
+    write_reg(REG_LEARNING_RATE, 32U); /* Q0.16: same mu as RTL convergence tests. */
 }
 
 static struct phase_result run_phase(uint32_t control)
@@ -96,10 +131,7 @@ static struct phase_result run_phase(uint32_t control)
     write_reg(REG_CONTROL, control);
     wait_for_samples();
 
-    write_reg(REG_COMMAND, 1);
-    (void)read_reg(REG_COMMAND);
-    result.error_bits = read_reg(REG_ERROR_BITS);
-    result.words = read_reg(REG_TOTAL_WORDS);
+    result = snapshot();
     return result;
 }
 
@@ -178,6 +210,53 @@ static void print_row(const char *name, const char *expected,
     xil_printf(" |\r\n");
 }
 
+static unsigned run_training_phase(const char *name, uint32_t enables)
+{
+    const uint32_t learning = CTRL_TX | CTRL_ISI | CTRL_LMS | enables;
+    const uint32_t measuring = learning | CTRL_MON;
+    struct phase_result discard;
+    unsigned failures = 0;
+    int config_ok;
+
+    write_reg(REG_DUT_RESET_N, 0);
+    write_reg(REG_CONTROL, 0);
+    configure_fixed_weights();
+    write_reg(REG_DFE_B0, 0); /* Must learn from zero; do not preload h=0.5. */
+    /* Every mode starts FFE=(1,0,0), ISI=0.5, mu=32/65536, AWGN=off. */
+    write_reg(REG_CONTROL, learning); /* Set LMS before releasing DUT reset. */
+    config_ok = read_reg(REG_CONTROL) == learning &&
+                read_reg(REG_DUT_RESET_N) == 0U &&
+                read_reg(REG_FFE_W0) == 4096U &&
+                read_reg(REG_FFE_W1) == 0U &&
+                read_reg(REG_FFE_W2) == 0U &&
+                read_reg(REG_DFE_B0) == 0U &&
+                read_reg(REG_ISI_COEFF) == 2048U &&
+                read_reg(REG_LEARNING_RATE) == 32U &&
+                read_reg(REG_NOISE_GAIN) == 0U;
+    write_reg(REG_DUT_RESET_N, 1);
+    config_ok = config_ok && read_reg(REG_DUT_RESET_N) == 1U;
+    wait_for_learning(); /* Training -> DD; monitor remains off throughout. */
+
+    /* Do not toggle LMS: disabling it reloads seeds and restarts training. */
+    write_reg(REG_CONTROL, measuring);
+    config_ok = config_ok && read_reg(REG_CONTROL) == measuring;
+    wait_for_samples(); /* Let monitor acquire the now-stable cyclic pattern. */
+    discard = snapshot(); /* Discard startup/acquisition; start clean window. */
+    (void)discard;
+
+    for (unsigned window = 0; window < SEQUENCE_LMS_WINDOWS; ++window) {
+        struct phase_result result;
+        int pass;
+        wait_for_samples();
+        result = snapshot();
+        pass = config_ok && result.words >= SEQUENCE_MIN_WORDS &&
+               result.error_bits == 0U;
+        print_row(name, "0 post-learn", &result, pass ? "PASS" : "FAIL");
+        if (!pass) ++failures;
+    }
+    return failures;
+}
+
 int main(void)
 {
     const uint32_t control_tx_monitor = CTRL_TX | CTRL_MON;
@@ -193,6 +272,7 @@ int main(void)
     struct phase_result isi_ffe;
     struct phase_result isi_dfe;
     struct phase_result isi_ffe_dfe;
+    unsigned training_failures = 0;
 
     xil_printf("\r\nAdaptive EQ sequence test\r\n");
     xil_printf("DUT base address: 0x%08x\r\n", (unsigned)DUT_BASEADDR);
@@ -218,6 +298,23 @@ int main(void)
     xil_printf("\r\nISI check: INFO (expected errors %s)\r\n",
                (isi.words != 0U && isi.error_bits != 0U) ?
                "observed" : "not observed");
+
+    xil_printf("\r\nLMS training sequences: ISI=0.5, seed FFE=(1,0,0), seed DFE=0\r\n");
+    xil_printf("Requires current RTL: TRAIN_LEN=3000, then automatic decision-directed LMS.\r\n");
+    xil_printf("mu=32/65536, AWGN=off; settle loops=%u, windows=%u, min words=%u\r\n",
+               (unsigned)SEQUENCE_SETTLE_LOOPS, (unsigned)SEQUENCE_LMS_WINDOWS,
+               (unsigned)SEQUENCE_MIN_WORDS);
+    xil_printf("Each repeated row is a fresh post-learning monitor window. LMS stays enabled.\r\n");
+    print_table_header();
+    training_failures += run_training_phase("LMS FFE", CTRL_FFE);
+    training_failures += run_training_phase("LMS DFE", CTRL_DFE);
+    training_failures += run_training_phase("LMS FFE+DFE", CTRL_FFE | CTRL_DFE);
+    print_table_border();
+    xil_printf("LMS SEQUENCES: %s | failing windows=%u\r\n",
+               training_failures == 0U ? "PASS" : "FAIL", training_failures);
+    xil_printf("PASS checks post-learning cyclic-monitor errors, not learned tap values.\r\n");
+    xil_printf("AXI FFE/DFE registers read back seeds only; current taps/training status are not mapped.\r\n");
+    xil_printf("The monitor counts binary-counter bit errors and self-aligns its phase.\r\n");
 
     write_reg(REG_CONTROL, 0);
     write_reg(REG_DUT_RESET_N, 0);
