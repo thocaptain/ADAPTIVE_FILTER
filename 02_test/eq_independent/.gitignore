@@ -1,6 +1,7 @@
 /build/
 /results/
 /vectors/
+/RESULTS.md
 /FFE_ONLY_*.log
 /FFE_ONLY_*.vcd
 /DFE_ONLY_*.log

@@ -180,6 +180,6 @@ PASS means C++ and RTL match for the samples tested; it does not imply convergen
 | `reference_model.hpp` | Independent C++ arithmetic and stimulus generation |
 | `../eq_chain/chain_tb.sv` | Probe wrapper for the integrated RTL |
 | `reference_checks.cpp` | Hand-calculated arithmetic contract checks |
-| `driver.cpp`, `export_vectors.m`, `RESULTS.md` | Legacy CSV regression and historical results |
+| `driver.cpp`, `export_vectors.m` | Legacy CSV regression and MATLAB vector export |
 
 Run `make reference_checks` for the arithmetic checks. The legacy targets `make ffe`, `make dfe`, and `make all` still generate CSV files under `results/`; they are separate from the default table runner. Python scripts have been removed.
