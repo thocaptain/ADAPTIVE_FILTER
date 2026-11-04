@@ -1,0 +1,9 @@
+/reports/
+/build/
+/logs/
+/FFE_ONLY_*.log
+/FFE_ONLY_*.vcd
+/DFE_ONLY_*.log
+/DFE_ONLY_*.vcd
+/FFE_DFE_*.log
+/FFE_DFE_*.vcd

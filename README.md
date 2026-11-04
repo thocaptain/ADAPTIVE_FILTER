@@ -1,5 +1,14 @@
 # Project Specification: FPGA-Based PAM-4 Communication System with Emulated ISI Channel, CLT AWGN Generator, and Adaptive FFE-DFE Equalizer with Cyclic Pattern BER Monitor
 
+Hướng dẫn chạy test FFE/DFE, log đối chiếu C++/SystemVerilog, waveform và sơ đồ model:
+[02_test/eq_independent/README.md](02_test/eq_independent/README.md).
+
+```bash
+cd 02_test/eq_independent
+make MODE=DFE_ONLY TEST=FIXED
+make MODE=FFE_DFE TEST=LMS N=10000 OPENWAVE=1
+```
+
 **Course:** EE5427 – Digital System Design on FPGA  
 **Target Platform:** Digilent Arty A7 (Xilinx Artix-7 XC7A35T / XC7A100T)  
 **EDA Tool:** AMD Xilinx Vivado Design Suite  
