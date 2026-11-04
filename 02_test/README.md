@@ -1,6 +1,6 @@
-# Test FFE / DFE
+# FFE / DFE Tests
 
-Hướng dẫn chính, lệnh chạy và sơ đồ model C++/SV nằm trong
+The main guide, run commands, and C++/SV model diagrams are available in
 [eq_independent/README.md](eq_independent/README.md).
 
 ```bash
@@ -11,6 +11,6 @@ make MODE=FFE_DFE TEST=LMS N=10000 OPENWAVE=1
 make clean
 ```
 
-Có thể chạy từ repo root bằng `make -C 02_test MODE=... TEST=...`.
-Log và waveform luôn nằm ngay trong `02_test/eq_independent`.
-Bộ test dùng C++17 và Verilator, không cần Python/MATLAB.
+You can also run from the repository root with `make -C 02_test MODE=... TEST=...`.
+Logs and waveforms are always saved directly in `02_test/eq_independent`.
+The suite uses C++17 and Verilator; Python and MATLAB are not required.

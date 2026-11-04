@@ -1,6 +1,6 @@
 # Project Specification: FPGA-Based PAM-4 Communication System with Emulated ISI Channel, CLT AWGN Generator, and Adaptive FFE-DFE Equalizer with Cyclic Pattern BER Monitor
 
-Hướng dẫn chạy test FFE/DFE, log đối chiếu C++/SystemVerilog, waveform và sơ đồ model:
+For FFE/DFE test commands, C++/SystemVerilog comparison logs, waveforms, and model diagrams, see:
 [02_test/eq_independent/README.md](02_test/eq_independent/README.md).
 
 ```bash

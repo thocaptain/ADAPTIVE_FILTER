@@ -1,10 +1,10 @@
-# Kiểm tra FFE / DFE: model C++ và SystemVerilog
+# FFE / DFE Tests: C++ Model and SystemVerilog
 
-Bộ test cấp cùng dữ liệu cho model C++ và RTL thật qua Verilator, rồi so sánh chính xác từng số nguyên fixed-point. Có ba chế độ: FFE riêng, DFE riêng và chuỗi FFE + DFE. Mỗi chế độ có hệ số cố định hoặc cập nhật LMS.
+This test suite feeds the same data to an independent C++ model and the actual RTL simulated by Verilator, then compares their fixed-point integer results exactly. It supports three modes: standalone FFE, standalone DFE, and a connected FFE + DFE chain. Each mode supports fixed coefficients or LMS adaptation.
 
-## Chuẩn bị
+## Requirements
 
-Chạy trong Ubuntu hoặc Ubuntu WSL. Cần GNU Make, compiler C++17 và Verilator; GTKWave dùng khi muốn mở waveform.
+Run the tests on Ubuntu or Ubuntu WSL. GNU Make, a C++17 compiler, and Verilator are required. GTKWave is optional and is used to view waveforms.
 
 ```bash
 sudo apt update
@@ -12,58 +12,58 @@ sudo apt install build-essential verilator gtkwave
 cd ~/adaptive_eq/02_test/eq_independent
 ```
 
-Nếu clone repo vào đường dẫn khác, thay `~/adaptive_eq` bằng thư mục repo của bạn. Không cần Python hoặc MATLAB để chạy bộ test này.
+Replace `~/adaptive_eq` with your repository path if necessary. Python and MATLAB are not required to run this suite.
 
-## Các lệnh chạy
+## Running the Tests
 
-| Chế độ | Hệ số cố định | Cập nhật LMS |
+| Mode | Fixed coefficients | LMS adaptation |
 | --- | --- | --- |
-| FFE riêng | `make MODE=FFE_ONLY TEST=FIXED` | `make MODE=FFE_ONLY TEST=LMS` |
-| DFE riêng | `make MODE=DFE_ONLY TEST=FIXED` | `make MODE=DFE_ONLY TEST=LMS` |
+| Standalone FFE | `make MODE=FFE_ONLY TEST=FIXED` | `make MODE=FFE_ONLY TEST=LMS` |
+| Standalone DFE | `make MODE=DFE_ONLY TEST=FIXED` | `make MODE=DFE_ONLY TEST=LMS` |
 | FFE + DFE | `make MODE=FFE_DFE TEST=FIXED` | `make MODE=FFE_DFE TEST=LMS` |
 
-`make` không có option mặc định chạy `DFE_ONLY`, `FIXED`, 128 mẫu.
+Running `make` without options defaults to `DFE_ONLY`, `FIXED`, and 128 input samples.
 
 ```bash
-# Chọn số mẫu:
+# Select the number of samples:
 make MODE=FFE_ONLY TEST=LMS N=4096
 
-# Chỉ xuất waveform:
+# Dump a waveform without opening it:
 make MODE=DFE_ONLY TEST=FIXED N=128 DUMPWAVE=1
 
-# Xuất waveform và tự mở GTKWave sau khi PASS:
+# Dump a waveform and open GTKWave after the test passes:
 make MODE=FFE_DFE TEST=LMS N=10000 OPENWAVE=1
 
-# Xóa log, waveform, viewer log và thư mục build:
+# Remove logs, waveforms, viewer logs, and build directories:
 make clean
 
-# Xem các option:
+# Show the available options:
 make help
 ```
 
-| Option | Mặc định | Ý nghĩa |
+| Option | Default | Description |
 | --- | --- | --- |
-| `MODE` | `DFE_ONLY` | `FFE_ONLY`, `DFE_ONLY`, `FFE_DFE` |
-| `TEST` | `FIXED` | `FIXED` giữ hệ số; `LMS` cập nhật hệ số |
-| `N` | `128` | Số mẫu input, từ 1 đến 10000000; bảng in đủ N output |
-| `DUMPWAVE` | `0` | `1` xuất waveform VCD |
-| `OPENWAVE` | `0` | `1` tự bật dumpwave và mở GTKWave |
-| `GTKWAVE` | `gtkwave` | Đường dẫn chương trình GTKWave nếu cần thay đổi |
-| `JOBS` | `2` | Số tiến trình biên dịch song song |
+| `MODE` | `DFE_ONLY` | `FFE_ONLY`, `DFE_ONLY`, or `FFE_DFE` |
+| `TEST` | `FIXED` | `FIXED` holds coefficients; `LMS` updates them |
+| `N` | `128` | Number of input samples, from 1 to 10000000; the table prints all N outputs |
+| `DUMPWAVE` | `0` | Set to `1` to generate a VCD waveform |
+| `OPENWAVE` | `0` | Set to `1` to enable waveform dumping and open GTKWave automatically |
+| `GTKWAVE` | `gtkwave` | Override the GTKWave executable path if necessary |
+| `JOBS` | `2` | Number of parallel compilation jobs |
 
-Build và log được ghi đè khi chạy lại cùng chế độ. GTKWave cần môi trường GUI, ví dụ WSLg. Nếu mở thất bại, VCD vẫn còn và thông báo nằm trong viewer log. `make clean` xóa build nên lần chạy kế tiếp biên dịch lại từ đầu.
+Build artifacts and logs are overwritten when the same mode is run again. GTKWave requires a graphical environment, such as WSLg. If the viewer fails to open, the VCD remains available and diagnostic messages are saved in the viewer log. Since `make clean` removes build directories, the next run rebuilds the executable.
 
-## Đọc log
+## Reading the Log
 
-Log hiện ngay trên terminal và lưu ngay trong thư mục `eq_independent`:
+The log is printed directly in the terminal and saved in the `eq_independent` directory:
 
 ```text
 DFE_ONLY_FIXED.log
-DFE_ONLY_FIXED.vcd          # khi DUMPWAVE=1 hoặc OPENWAVE=1
-DFE_ONLY_FIXED_viewer.log   # khi OPENWAVE=1
+DFE_ONLY_FIXED.vcd          # when DUMPWAVE=1 or OPENWAVE=1
+DFE_ONLY_FIXED_viewer.log   # when OPENWAVE=1
 ```
 
-Tên file tương ứng là `<MODE>_<TEST>.log`, `<MODE>_<TEST>.vcd` và `<MODE>_<TEST>_viewer.log`. Luồng chạy mặc định không tạo CSV hay Markdown result.
+The filename patterns are `<MODE>_<TEST>.log`, `<MODE>_<TEST>.vcd`, and `<MODE>_<TEST>_viewer.log`. The default table runner does not generate CSV files or Markdown result reports.
 
 ```text
 |      cycle |        output C++ (Q12 / real) |         output SV (Q12 / real) |
@@ -72,35 +72,35 @@ Tên file tương ứng là `<MODE>_<TEST>.log`, `<MODE>_<TEST>.vcd` và `<MODE>
 |          5 |                     2048 (0.5) |                     2048 (0.5) |
 ```
 
-Mỗi ô ghi `số nguyên Q4.12 (giá trị thập phân)`, với giá trị thực = số nguyên / 4096. Phần thập phân hiển thị chính xác tới 1 LSB. Cycle là số cạnh lên tính từ đầu mô phỏng, bắt đầu ở 1 và bao gồm reset; chỉ in cycle có output hợp lệ. Vì vậy output đầu tiên có thể ở cycle 3 hoặc muộn hơn, tùy pipeline.
+Each output cell contains a `Q4.12 integer (decimal value)`, where the real value equals the integer divided by 4096. The decimal representation is exact down to one LSB. The cycle column counts rising clock edges from the start of simulation, beginning at 1 and including reset. Only cycles with valid output are printed, so the first output may appear at cycle 3 or later, depending on the pipeline.
 
-Cuối log có `PASS` hoặc `FAIL`, số output và số mismatch. So sánh số nguyên chính xác: lệch 1 LSB cũng FAIL, không dùng tolerance. Checker so cả output, valid và hệ số; ở chuỗi tích hợp còn so TX, channel, decision, error, số mẫu và trạng thái training. `make` trả mã lỗi khi có mismatch hoặc lỗi build.
+The final line reports `PASS` or `FAIL`, the output count, and the mismatch count. Comparison uses exact integers: a difference of one LSB fails the test, with no numerical tolerance. The checker compares output, valid, and coefficients. For the integrated chain, it also checks TX data, channel output, decisions, error, sample counts, and training state. `make` returns a nonzero exit code on a mismatch or build failure.
 
-## Model đang dùng
+## Models Used by the Test Suite
 
-Driver chung là [`../table_test.cpp`](../table_test.cpp). Phần số học và stimulus của FFE/DFE riêng nằm trong [`reference_model.hpp`](reference_model.hpp). Verilator biên dịch trực tiếp RTL trong `00_src`, không dùng mô hình SV giả thay FFE/DFE.
+The shared driver is [`../table_test.cpp`](../table_test.cpp). Arithmetic and stimulus generation for the standalone FFE/DFE tests are implemented in [`reference_model.hpp`](reference_model.hpp). Verilator compiles the actual RTL in `00_src`; behavioral replacements are not used for the FFE or DFE.
 
-### FFE_ONLY và DFE_ONLY
+### FFE_ONLY and DFE_ONLY
 
 ```mermaid
 flowchart LR
-    S["Stimulus cố định: input, error, cấu hình"] --> C["Model C++: Ffe hoặc Dfe"]
-    S --> V["RTL rx_ffe.sv hoặc rx_dfe.sv qua Verilator"]
-    C --> K["Checker: output, valid, hệ số"]
+    S["Deterministic stimulus: input, error, configuration"] --> C["C++ model: Ffe or Dfe"]
+    S --> V["RTL rx_ffe.sv or rx_dfe.sv through Verilator"]
+    C --> K["Checker: output, valid, coefficients"]
     V --> K
     K --> L["Log: cycle | C++ | SV"]
 ```
 
-Hai khối chạy độc lập. Error đã biết được cấp cho cả hai phía, không lấy từ output RTL. Error tới RTL trễ một cạnh clock so với input; output được so với hệ số trước update, còn hệ số được kiểm tra sau update tương ứng. Cuối test có một cạnh flush để kiểm tra lần cập nhật cuối.
+The two blocks run independently. A known error sequence is supplied to both implementations rather than derived from the RTL output. Error reaches the RTL one rising edge after the corresponding input. Output is compared using coefficients before that sample's update; coefficients are checked after the matching update. A final flush edge checks the last coefficient update.
 
-| Chế độ | Input Q12 | Hệ số khởi tạo Q12 | Output trong bảng |
+| Mode | Q12 input | Initial Q12 coefficients | Output shown in the table |
 | --- | --- | --- | --- |
-| `FFE_ONLY` | `[0,4096,-4096,12288,-12288,8191,-8193,1,-1,32767,-32768]` | `w=[1024,3072,-512]` = `[0.25,0.75,-0.125]` | Tổng lọc ba tap |
+| `FFE_ONLY` | `[0,4096,-4096,12288,-12288,8191,-8193,1,-1,32767,-32768]` | `w=[1024,3072,-512]` = `[0.25,0.75,-0.125]` | Three-tap filter output |
 | `DFE_ONLY` | `[-12288,-4096,4096,12288]` = `[-3,-1,+1,+3]` | `b0=2048` = `0.5` | Feedback `b0 * d_hat[n-1]` |
 
-Stimulus cơ sở có 128 mẫu. Các pattern input/error được tạo theo chỉ số trong 128 mẫu này rồi lặp nguyên đoạn khi N lớn hơn 128; lịch sử mẫu FFE vẫn được giữ liên tục. Error Q12 là `[1,-1,2048,-2048,8192,-8192,0]`. Khi FIXED, error không làm đổi hệ số. Khi LMS, `mu_Q16=32`, tương ứng 32/65536.
+The base stimulus contains 128 samples. Input and error patterns are generated by index within that block, and the entire block repeats when N exceeds 128; FFE sample history remains continuous. The Q12 error pattern is `[1,-1,2048,-2048,8192,-8192,0]`. In FIXED mode, error does not change coefficients. In LMS mode, `mu_Q16=32`, equivalent to 32/65536.
 
-Công thức (giá trị thực, trước quy tắc lượng tử hóa):
+The equations below use real values before fixed-point quantization:
 
 ```text
 FFE: y[n] = w0*x[n] + w1*x[n-1] + w2*x[n-2]
@@ -110,76 +110,76 @@ DFE: feedback[n] = b0*d_hat[n-1]
      b0          <- b0 - mu*e[n]*d_hat[n-1]
 ```
 
-Output DFE riêng là phần feedback, chưa phải tín hiệu sau khi trừ khỏi FFE. LMS ở hai chế độ riêng kiểm tra phép cập nhật với error cấp sẵn, không đánh giá tự hội tụ.
+Standalone DFE output is the feedback term, before subtraction from the FFE output. LMS tests in these two standalone modes verify coefficient updates with supplied error; they do not measure convergence.
 
-### FFE_DFE: nối chuỗi và LMS vòng kín
+### FFE_DFE: Connected Chain and Closed-Loop LMS
 
 ```mermaid
 flowchart LR
-    TX["TX PAM4 tuần hoàn"] --> CH["ISI: r[n] = s[n] + 0.5*s[n-1]"]
-    CH --> FF["FFE 3 tap"]
+    TX["Periodic PAM4 TX"] --> CH["ISI: r[n] = s[n] + 0.5*s[n-1]"]
+    CH --> FF["Three-tap FFE"]
     FF --> SUB["y = FFE - feedback"]
     SUB --> SL["PAM4 slicer"]
-    SL --> Z["Một quyết định trễ"]
-    Z --> DF["DFE: b0 * quyết định trước"]
+    SL --> Z["One-decision delay"]
+    Z --> DF["DFE: b0 * previous decision"]
     DF --> SUB
-    TX --> TR["Target: TX trong 3000 output đầu; sau đó slicer"]
+    TX --> TR["Target: TX for the first 3000 outputs; slicer afterward"]
     SL --> TR
     TR --> ER["e = target - y"]
     SUB --> ER
-    ER --> LMS["LMS khi TEST=LMS"]
+    ER --> LMS["LMS when TEST=LMS"]
     LMS --> FF
     LMS --> DF
 ```
 
-Hai nhánh C++/SV tính riêng cùng chuỗi:
+The C++ and SV paths independently process the same sequence:
 
 ```mermaid
 flowchart LR
-    S["TX đã kiểm tra với pattern kỳ vọng"] --> C["C++ Model: channel, FFE, DFE, slicer, LMS"]
+    S["TX checked against the expected pattern"] --> C["C++ model: channel, FFE, DFE, slicer, LMS"]
     S --> V["RTL top: TX, channel, rx_top, FFE, DFE"]
-    C --> Q["FIFO căn theo mẫu và kiểm tra pipeline"]
+    C --> Q["FIFO sample alignment and pipeline checks"]
     V --> Q
-    Q --> L["Bảng output trước slicer và PASS/FAIL"]
+    Q --> L["Pre-slicer output table and PASS/FAIL"]
 ```
 
-Wrapper [`../eq_chain/chain_tb.sv`](../eq_chain/chain_tb.sv) chỉ đưa tín hiệu debug ra ngoài; datapath là RTL thật. C++ tự tính kênh từ TX và mẫu TX trước. Decision feedback của model lấy từ slicer C++, không lấy từ quyết định SV để che sai khác. FIFO giữ thứ tự mẫu qua channel/RX, không tự tìm phase hoặc delay để làm khớp kết quả.
+The wrapper [`../eq_chain/chain_tb.sv`](../eq_chain/chain_tb.sv) only exposes debug signals; the datapath uses the actual RTL. C++ computes channel output from the current and previous TX symbols. Model feedback uses the C++ slicer's previous decision, not the SV decision, so discrepancies are not hidden. FIFOs preserve sample order through the channel and RX; the checker does not search for a phase or delay that makes results match.
 
-| Tham số | FIXED | LMS |
+| Parameter | FIXED | LMS |
 | --- | --- | --- |
-| TX Q12 | `[-4096,4096,12288,-12288]` tuần hoàn | Như FIXED |
-| ISI Q12 | `2048` = 0.5 | Như FIXED |
-| AWGN | Tắt | Tắt |
-| FFE ban đầu Q12 | `[4096,0,0]` | `[4096,0,0]` |
-| DFE ban đầu Q12 | `2048` = 0.5 | `0` |
-| Mu Q16 | `32`, không cập nhật vì LMS tắt | `32` |
-| Target error | Quyết định slicer; không cập nhật | TX ở ID 0–2999, slicer từ ID 3000 |
-| Output log | FFE trừ feedback, trước slicer | Như FIXED |
+| TX Q12 | Repeating `[-4096,4096,12288,-12288]` | Same as FIXED |
+| ISI Q12 | `2048` = 0.5 | Same as FIXED |
+| AWGN | Disabled | Disabled |
+| Initial FFE Q12 | `[4096,0,0]` | `[4096,0,0]` |
+| Initial DFE Q12 | `2048` = 0.5 | `0` |
+| Mu Q16 | `32`; updates disabled | `32` |
+| Error target | Slicer decision; updates disabled | TX at sample IDs 0-2999; slicer from ID 3000 |
+| Logged output | FFE minus feedback, before the slicer | Same as FIXED |
 
-TRAIN_LEN=3000 là tham số RTL mặc định của wrapper. N=128 chỉ chạy đoạn đầu training; dùng N>3000 để đi qua giai đoạn decision-directed, ví dụ N=10000 hoặc 200000. Global LMS cũng có thể cập nhật hệ số của khối bypass trong các regression khác; chế độ FFE_DFE ở đây bật cả hai khối.
+TRAIN_LEN=3000 is the wrapper's default RTL parameter. N=128 runs only the beginning of training. Set N>3000 to reach decision-directed operation, for example N=10000 or 200000. Global LMS can also update coefficients of bypassed blocks in other regressions; FFE_DFE mode enables both blocks.
 
-### Số học fixed-point và nguồn tham chiếu
+### Fixed-Point Arithmetic and Reference Source
 
-- Input, error, output và hệ số visible: signed 16-bit, 12 bit phần lẻ.
-- FFE: dịch phải số học mỗi tích 12 bit, bão hòa từng tích về 16 bit, rồi cộng và bão hòa tổng.
-- DFE: nhân hệ số với quyết định trước, dịch phải số học rồi bão hòa 16 bit.
-- LMS: accumulator signed 40-bit, 20 bit phần lẻ. Mu Q16 chuyển sang Q20 bằng nhân 16; delta Q20 = round(mu_Q20 * e_Q12 * x_Q12 / 2^24). FFE cộng delta; DFE trừ delta. Bão hòa accumulator 40 bit, round khi chuyển về hệ số Q12 rồi bão hòa 16 bit.
-- Round đúng nửa LSB ra xa 0; dịch phải tích âm làm tròn xuống. Slicer chọn mức thấp khi đúng ngưỡng -2, 0, +2.
+- Input, error, output, and visible coefficients use signed 16-bit values with 12 fractional bits.
+- FFE: arithmetic-shift each product right by 12 bits, saturate each product to 16 bits, then add and saturate the sum.
+- DFE: multiply the coefficient by the previous decision, arithmetic-shift right, and saturate to 16 bits.
+- LMS: use a signed 40-bit accumulator with 20 fractional bits. Convert mu from Q16 to Q20 by multiplying by 16. The Q20 delta is round(mu_Q20 * e_Q12 * x_Q12 / 2^24). Add delta for FFE and subtract it for DFE. Saturate the accumulator to 40 bits, round when converting back to Q12, then saturate the visible coefficient to 16 bits.
+- Exact half-LSB ties round away from zero. Right shifts of negative products round downward. The slicer selects the lower level at exact thresholds -2, 0, and +2.
 
-Model số học được chuyển từ các hàm `dfe_lms_pam_fp_core`, `lms_delta_qacc`, `q_sat` và chuyển Q-format trong [`../../reference/full_demo_v26_clt_awgn_fixed_paper.m`](../../reference/full_demo_v26_clt_awgn_fixed_paper.m). Đây là phần số học plain LMS: không robust clipping, projection, gate hoặc Polyak averaging. C++ đã có kiểm tra giá trị tính tay trong `reference_checks.cpp`; chưa xác minh tương đương bằng một lần chạy MATLAB runtime.
+The arithmetic model is derived from `dfe_lms_pam_fp_core`, `lms_delta_qacc`, `q_sat`, and Q-format conversion in [`../../reference/full_demo_v26_clt_awgn_fixed_paper.m`](../../reference/full_demo_v26_clt_awgn_fixed_paper.m). It implements plain LMS without robust clipping, projection, gating, or Polyak averaging. Hand-calculated arithmetic checks are provided in `reference_checks.cpp`; direct equivalence against a MATLAB runtime execution has not been verified.
 
-PASS nghĩa là C++ và RTL khớp ở các mẫu đã chạy; không đồng nghĩa tự hội tụ. Luồng bảng này chưa tự báo mốc hội tụ, chưa kiểm tra AWGN, synthesis/timing hoặc board thật.
+PASS means C++ and RTL match for the samples tested; it does not imply convergence. The table runner does not automatically report convergence time and does not validate AWGN, synthesis/timing, or FPGA board operation.
 
-## File thực thi và regression cũ
+## Implementation Files and Legacy Regression
 
-| File | Vai trò |
+| File | Purpose |
 | --- | --- |
-| `Makefile` | Entry point; chuyển option sang `../Makefile` |
-| `../Makefile` | Build, chạy, lưu log, dump/open wave và clean |
-| `../table_test.cpp` | Driver bảng ba chế độ, clock và waveform |
-| `reference_model.hpp` | Số học C++ và stimulus độc lập |
-| `../eq_chain/chain_tb.sv` | Wrapper probe cho RTL tích hợp |
-| `reference_checks.cpp` | Kiểm tra contract số học bằng giá trị tính tay |
-| `driver.cpp`, `export_vectors.m`, `RESULTS.md` | Regression CSV và báo cáo lịch sử |
+| `Makefile` | Entry point; forwards options to `../Makefile` |
+| `../Makefile` | Build, run, log, dump/open waveforms, and clean |
+| `../table_test.cpp` | Three-mode table driver, clock, and waveform handling |
+| `reference_model.hpp` | Independent C++ arithmetic and stimulus generation |
+| `../eq_chain/chain_tb.sv` | Probe wrapper for the integrated RTL |
+| `reference_checks.cpp` | Hand-calculated arithmetic contract checks |
+| `driver.cpp`, `export_vectors.m`, `RESULTS.md` | Legacy CSV regression and historical results |
 
-Chạy kiểm tra số học bằng `make reference_checks`. Các target cũ `make ffe`, `make dfe`, `make all` vẫn xuất CSV vào `results/`; chúng không phải luồng log bảng mặc định. Các script Python đã được gỡ.
+Run `make reference_checks` for the arithmetic checks. The legacy targets `make ffe`, `make dfe`, and `make all` still generate CSV files under `results/`; they are separate from the default table runner. Python scripts have been removed.
