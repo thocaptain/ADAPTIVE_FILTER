@@ -102,6 +102,7 @@ module rx_top #(
 
     // Reference traverses the same sample register as FFE input. Count only
     // valid errors actually consumed by LMS, including the final flush.
+    // Delay of FFE and DFE is 1 clock cycle, so the training reference is delayed by 1 cycle.
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
             train_ref_r <= '0;

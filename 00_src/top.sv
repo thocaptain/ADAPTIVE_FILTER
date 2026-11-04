@@ -62,6 +62,7 @@ module top #(
 
     // Match the two channel stages: curr_s_r, then awgn_din. Preserve the
     // actual TX symbol through pauses; do not infer it from a cyclic counter.
+    // Delay of the channel model is 2 clock cycles: 1 for ISI, 1 for AWGN. The training reference is the TX symbol
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
             train_ref_isi <= '0;
