@@ -14,3 +14,21 @@ make clean
 You can also run from the repository root with `make -C 02_test MODE=... TEST=...`.
 Logs and waveforms are always saved directly in `02_test/eq_independent`.
 The suite uses C++17 and Verilator; Python and MATLAB are not required.
+
+## Full regression
+
+The test Makefile currently provides 16 regression cases:
+
+- 6 FFE/DFE comparisons: three modes (`FFE_ONLY`, `DFE_ONLY`, `FFE_DFE`) with
+  both `FIXED` and `LMS` profiles.
+- 10 block-BER configurations in `ber/`.
+
+Run all cases from the repository root:
+
+```bash
+make -C 02_test regression
+```
+
+The regression continues after individual failures, prints a final passed/failed
+case count, and saves detailed output to `02_test/regression.log`. The command
+returns a nonzero status if any case fails.

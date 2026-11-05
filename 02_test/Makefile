@@ -15,6 +15,7 @@ BUILD := $(abspath build/verilator_$(TOOL_TAG)/$(MODE))
 RUN_PREFIX := $(abspath eq_independent/$(MODE)_$(TEST))
 CLEAN_OUTPUTS := $(foreach dir,. eq_independent,$(foreach mode,FFE_ONLY DFE_ONLY FFE_DFE,$(foreach test,FIXED LMS,$(addprefix $(abspath $(dir))/$(mode)_$(test),.log .vcd _viewer.log))))
 DRIVER := $(abspath table_test.cpp)
+REGRESSION_LOG := $(abspath regression.log)
 
 ifeq ($(MODE),FFE_ONLY)
 TOP := rx_ffe
@@ -30,12 +31,33 @@ DEFINE := -DTEST_CHAIN
 SOURCES := $(abspath eq_chain/chain_tb.sv) $(ROOT)/00_src/top.sv $(ROOT)/00_src/tx/tx_top.sv $(ROOT)/00_src/channel/channel_top.sv $(ROOT)/00_src/rx/rx_top.sv $(ROOT)/00_src/rx/rx_ffe.sv $(ROOT)/00_src/rx/rx_dfe.sv $(ROOT)/00_src/rx/rx_monitor.sv
 endif
 
-.PHONY: run build help clean
+.PHONY: run build help clean regression
 clean:
 	@rm -f -- $(foreach file,$(CLEAN_OUTPUTS),"$(file)")
 	@if [ -d "$(abspath logs)" ]; then find "$(abspath logs)" -type f \( -name 'run.log' -o -name 'wave.vcd' -o -name 'viewer.log' \) -delete; fi
 	@rm -rf -- "$(abspath build)" "$(abspath eq_independent/build)"
 	@echo 'Removed build directories, run logs and waveforms.'
+
+regression:
+	@passed=0; failed=0; total=0; \
+	: > "$(REGRESSION_LOG)"; \
+	run_case() { \
+	 label="$$1"; shift; total=$$((total + 1)); \
+	 printf 'Running %s ... ' "$$label"; \
+	 if "$$@" >> "$(REGRESSION_LOG)" 2>&1; then \
+	  passed=$$((passed + 1)); printf 'PASS\n'; \
+	 else \
+	  failed=$$((failed + 1)); printf 'FAIL\n'; \
+	 fi; \
+	}; \
+	for mode in FFE_ONLY DFE_ONLY FFE_DFE; do \
+	 for test in FIXED LMS; do \
+	  run_case "$$mode/$$test" $(MAKE) --no-print-directory run MODE=$$mode TEST=$$test N=$(N); \
+	 done; \
+	done; \
+	printf '\nRegression results: %s cases, %s passed, %s failed\n' "$$total" "$$passed" "$$failed"; \
+	printf '\nRegression results: %s cases, %s passed, %s failed\n' "$$total" "$$passed" "$$failed" >> "$(REGRESSION_LOG)"; \
+	test "$$failed" -eq 0
 
 run: build
 	@set -o pipefail; $(BUILD)/V$(TOP) $(TEST) $(N) $(if $(filter 1,$(WRITE_WAVE)),"$(RUN_PREFIX).vcd") 2>&1 | tee "$(RUN_PREFIX).log"
@@ -62,6 +84,8 @@ help:
 	@echo 'make -C 02_test MODE=FFE_ONLY TEST=FIXED'
 	@echo 'MODE=FFE_ONLY | DFE_ONLY | FFE_DFE'
 	@echo 'TEST=FIXED | LMS   N=128   DUMPWAVE=0|1   OPENWAVE=0|1'
+	@echo 'make -C 02_test regression: run all 16 FFE/DFE and BER regression cases.'
+	@echo 'Regression output is saved to 02_test/regression.log.'
 	@echo 'OPENWAVE=1: automatically dump VCD and open GTKWave after a passing run.'
 	@echo 'make clean: remove build directories, run logs and VCD files.'
 	@echo 'Output: 02_test/eq_independent/<MODE>_<TEST>.log and optional <MODE>_<TEST>.vcd.'
