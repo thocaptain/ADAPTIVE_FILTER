@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 // Probe wrapper only: all datapath and wiring are the actual source top.
-module chain_tb #(parameter int TRAIN_LEN=3000) (
+module chain_tb #(parameter int TRAIN_LEN=3000, parameter int PIPELINE=0 ) (
     input logic i_clk, i_rstn, i_tx_en, i_isi_en, i_ffe_en, i_dfe_en, i_lms_en,
     input logic signed [15:0] i_h, i_w0, i_w1, i_w2, i_b0, i_mu,
     output logic o_tx_valid, o_channel_valid, o_rx_valid,
@@ -10,7 +10,7 @@ module chain_tb #(parameter int TRAIN_LEN=3000) (
     output logic signed [15:0] o_w0, o_w1, o_w2, o_b0,
     output logic o_training
 );
-    top #(.TRAIN_LEN(TRAIN_LEN)) dut (
+    top #(.TRAIN_LEN(TRAIN_LEN), .PIPELINE(PIPELINE)) dut (
         .i_clk(i_clk), .i_rstn(i_rstn), .i_cfg_tx_en(i_tx_en),
         .i_cfg_isi_en(i_isi_en), .i_cfg_isi_coeff(i_h),
         .i_cfg_awgn_en(1'b0), .i_cfg_snr_db(16'd0),

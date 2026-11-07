@@ -2,6 +2,7 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := run
 MODE ?= DFE_ONLY
 TEST ?= FIXED
+PIPELINE ?=
 N ?= 128
 DUMPWAVE ?= 0
 OPENWAVE ?= 0
@@ -39,6 +40,7 @@ clean:
 	@echo 'Removed build directories, run logs and waveforms.'
 
 regression:
+	@if [ -n "$(PIPELINE)" ]; then case "$(PIPELINE)" in 0|1) ;; *) echo "PIPELINE: 0 | 1"; exit 2;; esac; fi
 	@passed=0; failed=0; total=0; \
 	: > "$(REGRESSION_LOG)"; \
 	run_case() { \
@@ -52,7 +54,7 @@ regression:
 	}; \
 	for mode in FFE_ONLY DFE_ONLY FFE_DFE; do \
 	 for test in FIXED LMS; do \
-	  run_case "$$mode/$$test" $(MAKE) --no-print-directory run MODE=$$mode TEST=$$test N=$(N); \
+	  run_case "$$mode/$$test" $(MAKE) --no-print-directory run MODE=$$mode TEST=$$test N=$(N) $(if $(strip $(PIPELINE)),PIPELINE=$(PIPELINE)); \
 	 done; \
 	done; \
 	printf '\nRegression results: %s cases, %s passed, %s failed\n' "$$total" "$$passed" "$$failed"; \
@@ -73,18 +75,21 @@ run: build
 build:
 	@test -n "$(TOP)" || { echo "MODE: FFE_ONLY | DFE_ONLY | FFE_DFE"; exit 2; }
 	@case "$(TEST)" in FIXED|LMS) ;; *) echo "TEST: FIXED | LMS"; exit 2;; esac
+	@if [ -n "$(PIPELINE)" ]; then case "$(PIPELINE)" in 0|1) ;; *) echo "PIPELINE: 0 | 1"; exit 2;; esac; fi
 	@case "$(DUMPWAVE)" in 0|1) ;; *) echo "DUMPWAVE: 0 | 1"; exit 2;; esac
 	@case "$(OPENWAVE)" in 0|1) ;; *) echo "OPENWAVE: 0 | 1"; exit 2;; esac
 	@if [ "$(OPENWAVE)" = 1 ]; then command -v "$(GTKWAVE)" >/dev/null || { echo 'GTKWave not found. Install gtkwave or set GTKWAVE=/path/to/gtkwave.'; exit 2; }; fi
 	@mkdir -p $(BUILD)
-	@$(VERILATOR) --cc --exe --trace --sv -Wno-fatal --top-module $(TOP) --Mdir $(BUILD) -CFLAGS '-std=c++17 -O2 $(DEFINE)' $(SOURCES) $(DRIVER) > $(BUILD)/build.log 2>&1 || { cat $(BUILD)/build.log; exit 1; }
+	@$(VERILATOR) --cc --exe --trace --sv -Wno-fatal --top-module $(TOP) $(if $(strip $(PIPELINE)),-GPIPELINE=$(PIPELINE)) --Mdir $(BUILD) -CFLAGS '-std=c++17 -O2 $(DEFINE)' $(SOURCES) $(DRIVER) > $(BUILD)/build.log 2>&1 || { cat $(BUILD)/build.log; exit 1; }
 	@$(MAKE) --no-print-directory -C $(BUILD) -f V$(TOP).mk -j$(JOBS) V$(TOP) >> $(BUILD)/build.log 2>&1 || { cat $(BUILD)/build.log; exit 1; }
 
 help:
 	@echo 'make -C 02_test MODE=FFE_ONLY TEST=FIXED'
 	@echo 'MODE=FFE_ONLY | DFE_ONLY | FFE_DFE'
-	@echo 'TEST=FIXED | LMS   N=128   DUMPWAVE=0|1   OPENWAVE=0|1'
+	@echo 'TEST=FIXED | LMS   PIPELINE=0|1 (optional)   N=128   DUMPWAVE=0|1   OPENWAVE=0|1'
+	@echo 'Example: make -C 02_test MODE=DFE_ONLY TEST=FIXED PIPELINE=0'
 	@echo 'make -C 02_test regression: run all 16 FFE/DFE and BER regression cases.'
+	@echo 'make -C 02_test regression PIPELINE=0|1: use that pipeline setting for every regression case.'
 	@echo 'Regression output is saved to 02_test/regression.log.'
 	@echo 'OPENWAVE=1: automatically dump VCD and open GTKWave after a passing run.'
 	@echo 'make clean: remove build directories, run logs and VCD files.'

@@ -16,6 +16,7 @@
 
 module rx_ffe #(
     parameter int TAG_FFE    = 3,
+    parameter int PIPELINE   = 1,
     parameter int DATA_WIDTH = 16,
     parameter int DATA_FRAC  = 12
 )(
@@ -168,9 +169,23 @@ module rx_ffe #(
     // Keep one sample register in the closed loop. With another output
     // register, i_error would belong to the previous x_reg sample.
     // =========================================================================
+generate
+    if (PIPELINE) begin : gen_pipeline
+        always_ff @(posedge i_clk or negedge i_rstn) begin
+            if (!i_rstn) begin
+                o_valid    <= 1'b0;
+                o_ffe_data <= '0;
+            end else begin
+                o_valid    <= valid_r;
+                o_ffe_data <= y_ffe;
+            end
+        end
+    end else begin : gen_comb
+        assign o_valid    = valid_r;
+        assign o_ffe_data = y_ffe;
+    end
+endgenerate
 
-    assign o_valid    = valid_r;
-    assign o_ffe_data = y_ffe;
 
     assign o_curr_w0  = w_reg[0];
     assign o_curr_w1  = w_reg[1];

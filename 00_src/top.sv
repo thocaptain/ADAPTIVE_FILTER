@@ -14,6 +14,7 @@
 module top #(
     parameter int DATA_WIDTH = 16,
     parameter int DATA_FRAC  = 12,
+    parameter int PIPELINE   = 1,
     parameter int TRAIN_LEN  = 3000
 )(
     // Primary Clock & Active-Low Asynchronous Reset
@@ -117,6 +118,7 @@ module top #(
     rx_top #(
         .TAG_FFE    (3),
         .TAG_DFE    (1),
+        .PIPELINE   (PIPELINE),
         .DATA_WIDTH (DATA_WIDTH),
         .DATA_FRAC  (DATA_FRAC),
         .TRAIN_LEN  (TRAIN_LEN)

@@ -16,6 +16,7 @@
 `timescale 1ns / 1ps
 
 module rx_dfe #(
+    parameter int PIPELINE   = 1,
     parameter int DATA_WIDTH = 16,
     parameter int DATA_FRAC  = 12
 )(
@@ -144,8 +145,22 @@ module rx_dfe #(
     // A second output flop would use d_hat[n-2] at the RX summer.
     // Keep the multiply combinational after d_prev_r.
     // =========================================================================
-    assign o_valid    = valid_r;
-    assign o_dfe_data = y_dfe;
+    generate
+    if (PIPELINE) begin : gen_pipeline
+        always_ff @(posedge i_clk or negedge i_rstn) begin
+            if (!i_rstn) begin
+                o_valid    <= 1'b0;
+                o_dfe_data <= '0;
+            end else begin
+                o_valid    <= valid_r;
+                o_dfe_data <= y_dfe;
+            end
+        end
+    end else begin : gen_comb
+        assign o_valid    = valid_r;
+        assign o_dfe_data = y_dfe;
+    end
+    endgenerate
     assign o_curr_b0  = b0_reg;
 
 endmodule: rx_dfe

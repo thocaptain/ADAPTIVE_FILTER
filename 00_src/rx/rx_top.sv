@@ -18,6 +18,7 @@
 module rx_top #(
     parameter int TAG_FFE    = 3,
     parameter int TAG_DFE    = 1,
+    parameter int PIPELINE   = 1,
     parameter int DATA_WIDTH = 16,
     parameter int DATA_FRAC  = 12,
     parameter int TRAIN_LEN  = 3000
@@ -96,32 +97,42 @@ module rx_top #(
     logic signed [31:0]           error_raw_32;
     logic signed [DATA_WIDTH-1:0] lms_error;
     logic signed [DATA_WIDTH-1:0] train_ref_r;
+    logic signed [DATA_WIDTH-1:0] train_ref_r2;
     logic signed [DATA_WIDTH-1:0] desired;
     localparam int TRAIN_COUNT_WIDTH = (TRAIN_LEN < 1) ? 1 : $clog2(TRAIN_LEN+1);
     logic [TRAIN_COUNT_WIDTH-1:0] train_count;
 
     // Reference traverses the same sample register as FFE input. Count only
     // valid errors actually consumed by LMS, including the final flush.
-    // Delay of FFE and DFE is 1 clock cycle, so the training reference is delayed by 1 cycle.
+    // Delay of FFE and DFE is 1 clock cycle, so the training reference is delayed by 1 cycle. But if PIPELINE = 1, the training reference is delayed by 2 cycles.
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
             train_ref_r <= '0;
             train_count <= '0;
         end else begin
             if (i_valid) train_ref_r <= i_train_ref;
+            train_ref_r2 <= train_ref_r;
             if (!i_cfg_lms_en) train_count <= '0;
             else if (ffe_valid && (32'(train_count) < TRAIN_LEN))
                 train_count <= train_count + 1'b1;
         end
     end
     assign o_training = i_cfg_lms_en && ffe_valid && (32'(train_count) < TRAIN_LEN);
-    assign desired = o_training ? train_ref_r : d_hat;
+    generate 
+        if (PIPELINE == 1) begin
+            assign desired = o_training ? train_ref_r2 : d_hat;
+        end 
+        else begin
+            assign desired = o_training ? train_ref_r : d_hat;
+        end
+    endgenerate
 
     // =========================================================================
     // 1. Adaptive 3-Tap FFE: one sample register, no extra output register
     // =========================================================================
     rx_ffe #(
         .TAG_FFE    (TAG_FFE),
+        .PIPELINE   (PIPELINE),
         .DATA_WIDTH (DATA_WIDTH),
         .DATA_FRAC  (DATA_FRAC)
     ) u_rx_ffe (
@@ -147,6 +158,7 @@ module rx_top #(
     // 2. Adaptive 1-Tap DFE Submodule (Member 4 - Ngoc Cuong)
     // =========================================================================
     rx_dfe #(
+        .PIPELINE   (PIPELINE),
         .DATA_WIDTH (DATA_WIDTH),
         .DATA_FRAC  (DATA_FRAC)
     ) u_rx_dfe (
