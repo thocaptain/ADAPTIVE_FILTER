@@ -14,7 +14,6 @@ make MODE=FFE_DFE TEST=LMS N=10000 OPENWAVE=1
 **EDA Tool:** AMD Xilinx Vivado Design Suite  
 **HDL Standard:** SystemVerilog  
 **Team Size:** 5 Members  
-**Reference Design:** Senior Thesis by Nguyen Hung Minh (HCMUT, May 2026)  
 
 ---
 
