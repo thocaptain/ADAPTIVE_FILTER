@@ -81,16 +81,16 @@ This project implements an **autonomous, on-chip PAM-4 digital baseband evaluati
 
 ---
 
-## 2. Key Architectural Decisions & Reference Simplifications
+## 2. Key Architectural Decisions & Design Trade-offs
 
-To adapt the reference graduation thesis into a focused, modular **course assignment** for EE5427, the following key design decisions were made to reduce peripheral complexity while maximizing digital design learning outcomes:
+To build a focused, high-performance, and modular digital baseband evaluation system for EE5427, the following key architectural design decisions were established to reduce peripheral complexity while maximizing digital design efficiency and FPGA implementation learning outcomes:
 
-| Feature | Reference Thesis Architecture | Proposed Assignment Architecture | Technical Motivation |
+| Feature | Conventional / Baseline Architecture | Proposed System Architecture | Technical Motivation |
 | :--- | :--- | :--- | :--- |
 | **Test Pattern Generator & Monitor** | High-order PRBS-7/15 LFSRs with cross-correlation synchronization state machines. | **2-Bit Cyclic Gray-Code Generator & Synchronized BER Monitor** (repeating cycle: $0 \to 1 \to 2 \to 3 \to 0 \dots$). | Drastically simplifies pattern generation and synchronization logic while guaranteeing balanced, uniform transitions across all 4 PAM-4 signal levels for bit error measurement. |
 | **Adaptation Mode** | Dual-mode operation: training mode using reference symbols followed by decision-directed tracking. | Pure **Decision-Directed LMS (DD-LMS)**: $e[n] = \hat{d}[n] - y[n]$. | Eliminates the need to distribute delayed transmitter reference symbols across the chip, reflecting realistic receiver operation and simplifying the interface. |
-| **Equalizer Tap Adaptation** | Top-level adaptive equalizer with centralized adaptation engine. | **Modular Embedded Adaptive Tap Units (ATUs)** directly integrated inside the FFE and DFE sub-modules. | Preserves LMS coefficient adaptation, preset weight initialization, and step size $\mu$ control, distributed cleanly into modular blocks assigned to individual team members. |
-| **Monitoring & Visualization** | External **ESP32-S3 microcontroller** over UART, transmitting HTTP packets via Wi-Fi to a PC web browser for eye-diagram plots. | **On-Chip Cyclic BER Monitor** directly following the PAM-4 Slicer. | Eliminates external microcontroller boards, Wi-Fi dependencies, and web development. The FPGA becomes **100% self-contained**, providing deterministic, quantitative BER measurements via 32-bit status registers. |
+| **Equalizer Tap Adaptation** | Top-level adaptive equalizer with centralized adaptation engine. | **Modular Embedded Adaptive Tap Units (ATUs)** directly integrated inside the FFE and DFE sub-modules. | Achieves decentralized LMS coefficient adaptation, preset weight initialization, and step size $\mu$ control, distributed cleanly into modular blocks assigned to individual team members. |
+| **Monitoring & Visualization** | External microcontroller (e.g. ESP32-S3) over UART, transmitting packets via Wi-Fi to a PC web browser for eye-diagram plots. | **On-Chip Cyclic BER Monitor** directly following the PAM-4 Slicer. | Eliminates external microcontroller boards, Wi-Fi dependencies, and web development. The FPGA becomes **100% self-contained**, providing deterministic, quantitative BER measurements via 32-bit status registers. |
 | **ISI Channel Filter** | Full multi-tap channel filter with floating/configurable main cursor gain. | **First-postcursor ISI filter with normalized main cursor $h_0 = 1.0$** and configurable postcursor factor `i_cfg_isi_coeff`. | Eliminates a hardware multiplier on the critical main cursor path while maintaining accurate modeling of high-frequency transmission line dispersion. |
 
 ---
@@ -137,7 +137,7 @@ $$r_{clean}[n] = s[n] + \text{ISI\_coeff} \cdot s[n-1]$$
 
 ### 3.3. Equalizer Core: Adaptive 3-Tap FFE & Adaptive 1-Tap DFE
 
-Each equalizer module (FFE and DFE) embeds its own LMS coefficient adaptation logic, preserving the Adaptive Tap Unit (ATU) architecture from the reference thesis:
+Each equalizer module (FFE and DFE) embeds its own LMS coefficient adaptation logic using a dedicated Adaptive Tap Unit (ATU) architecture:
 
 ```
                   +---------------------------------------------------------+
