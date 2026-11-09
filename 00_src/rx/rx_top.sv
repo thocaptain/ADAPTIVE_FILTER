@@ -95,12 +95,39 @@ module rx_top #(
     logic signed [DATA_WIDTH-1:0] d_hat;
 
     logic signed [31:0]           error_raw_32;
-    logic signed [DATA_WIDTH-1:0] lms_error;
+    logic signed [DATA_WIDTH-1:0] lms_error, lms_error_r, dfe_error, ffe_error;
+    logic                         error_valid,dfe_error_valid,ffe_error_valid;
     logic signed [DATA_WIDTH-1:0] train_ref_r;
     logic signed [DATA_WIDTH-1:0] train_ref_r2;
     logic signed [DATA_WIDTH-1:0] desired;
     localparam int TRAIN_COUNT_WIDTH = (TRAIN_LEN < 1) ? 1 : $clog2(TRAIN_LEN+1);
     logic [TRAIN_COUNT_WIDTH-1:0] train_count;
+
+    generate
+    if (PIPELINE) begin : gen_pipeline
+        // Register for storing the previous LMS error
+        always_ff @(posedge i_clk or negedge i_rstn) begin
+            if (!i_rstn) begin
+                lms_error_r <= '0;
+            end else if(ffe_valid) begin
+                lms_error_r <= lms_error;
+            end
+            error_valid <= ffe_valid;
+        end
+        assign dfe_error = lms_error_r;
+        assign dfe_error_valid = error_valid;
+        assign ffe_error = lms_error_r;
+        assign ffe_error_valid = error_valid;
+    end else begin : gen_no_pipeline
+        // No pipeline, lms_error_r is not used
+        assign error_valid = '0;
+        assign lms_error_r = '0;
+        assign dfe_error = lms_error;
+        assign dfe_error_valid = ffe_valid;
+        assign ffe_error = lms_error;
+        assign ffe_error_valid = ffe_valid;
+    end
+    endgenerate
 
     // Reference traverses the same sample register as FFE input. Count only
     // valid errors actually consumed by LMS, including the final flush.
@@ -145,7 +172,8 @@ module rx_top #(
         .i_cfg_ffe_w1    (i_cfg_ffe_w1),
         .i_cfg_ffe_w2    (i_cfg_ffe_w2),
         .i_cfg_lms_en    (i_cfg_lms_en),
-        .i_error         (lms_error),
+        .i_error         (ffe_error),
+        .i_error_valid   (ffe_error_valid),
         .i_learning_rate (i_cfg_learning_rate),
         .o_valid         (ffe_valid),
         .o_ffe_data      (ffe_out),
@@ -153,7 +181,6 @@ module rx_top #(
         .o_curr_w1       (o_curr_ffe_w1),
         .o_curr_w2       (o_curr_ffe_w2)
     );
-
     // =========================================================================
     // 2. Adaptive 1-Tap DFE Submodule (Member 4 - Ngoc Cuong)
     // =========================================================================
@@ -171,8 +198,8 @@ module rx_top #(
         .i_cfg_dfe_en    (i_cfg_dfe_en),
         .i_cfg_dfe_b0    (i_cfg_dfe_b0),
         .i_cfg_lms_en    (i_cfg_lms_en),
-        .i_error_valid   (ffe_valid),
-        .i_error         (lms_error),
+        .i_error         (dfe_error),
+        .i_error_valid   (dfe_error_valid),
         .i_learning_rate (i_cfg_learning_rate),
         .o_valid         (dfe_valid),
         .o_dfe_data      (dfe_out),

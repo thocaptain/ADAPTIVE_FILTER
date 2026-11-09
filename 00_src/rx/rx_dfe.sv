@@ -78,20 +78,36 @@ module rx_dfe #(
     // =========================================================================
     // 1. Previous Sliced Decision Register: d_hat[n-1]
     // =========================================================================
-    logic signed [DATA_WIDTH-1:0] d_prev_r;
+    logic signed [DATA_WIDTH-1:0] d_prev_r, d_prev_r1, d_prev_r2;
     logic                         valid_r;
-
-    always_ff @(posedge i_clk or negedge i_rstn) begin
-        if (!i_rstn) begin
-            d_prev_r <= '0;
-            valid_r  <= 1'b0;
-        end else if (i_valid) begin
-            d_prev_r <= i_sliced_data;
-            valid_r  <= 1'b1;
+    generate
+        if (PIPELINE) begin //already pipelined in rx_top, so no need to pipeline here
+            assign d_prev_r = i_sliced_data;
+            assign valid_r  = i_valid;
+            always_ff @(posedge i_clk or negedge i_rstn) begin
+                if (!i_rstn) begin
+                    d_prev_r1 <= '0;
+                    d_prev_r2 <= '0;
+                end else if (i_valid) begin
+                    d_prev_r1 <= i_sliced_data;
+                    d_prev_r2 <= d_prev_r1;
+                end
+            end
         end else begin
-            valid_r  <= 1'b0;
+            always_ff @(posedge i_clk or negedge i_rstn) begin
+                if (!i_rstn) begin
+                    d_prev_r <= '0;
+                    valid_r  <= 1'b0;
+                end else if (i_valid) begin
+                    d_prev_r <= i_sliced_data;
+                    valid_r  <= 1'b1;
+                end else begin
+                    valid_r  <= 1'b0;
+                end
+            end
         end
-    end
+    endgenerate
+    
 
     // =========================================================================
     // 2. Feedback Tap Weight Register (b0)
@@ -107,12 +123,26 @@ module rx_dfe #(
     logic signed [2*DATA_WIDTH-1:0] prod_err_d;
     logic signed [3*DATA_WIDTH-1:0] prod_mu;
     logic signed [39:0] delta;
-    always_comb begin
-        prod_err_d = $signed(i_error) * $signed(d_prev_r);
-        prod_mu = $signed(i_learning_rate) * $signed(prod_err_d);
-        delta = sat40(round_shift(64'($signed(prod_mu)), 16+2*DATA_FRAC-20));
-        b0_reg = sat16(round_shift(64'($signed(b0_acc)), 20-DATA_FRAC));
-    end
+
+    generate
+        if (PIPELINE) begin
+            always_comb begin
+                prod_err_d = $signed(i_error) * $signed(d_prev_r2);
+                prod_mu = $signed(i_learning_rate) * $signed(prod_err_d);
+                delta = sat40(round_shift(64'($signed(prod_mu)), 16+2*DATA_FRAC-20));
+                b0_reg = sat16(round_shift(64'($signed(b0_acc)), 20-DATA_FRAC));
+            end
+        end
+        else begin
+            always_comb begin
+                prod_err_d = $signed(i_error) * $signed(d_prev_r);
+                prod_mu = $signed(i_learning_rate) * $signed(prod_err_d);
+                delta = sat40(round_shift(64'($signed(prod_mu)), 16+2*DATA_FRAC-20));
+                b0_reg = sat16(round_shift(64'($signed(b0_acc)), 20-DATA_FRAC));
+            end
+        end
+    endgenerate
+
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
             b0_acc <= sat40(64'($signed(i_cfg_dfe_b0)) <<< (20-DATA_FRAC));
@@ -151,10 +181,10 @@ module rx_dfe #(
             if (!i_rstn) begin
                 o_valid    <= 1'b0;
                 o_dfe_data <= '0;
-            end else begin
-                o_valid    <= valid_r;
+            end else if (valid_r) begin
                 o_dfe_data <= y_dfe;
             end
+            o_valid    <= valid_r;
         end
     end else begin : gen_comb
         assign o_valid    = valid_r;

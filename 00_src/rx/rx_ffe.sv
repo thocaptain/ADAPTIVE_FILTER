@@ -37,6 +37,7 @@ module rx_ffe #(
     // LMS Adaptation Signals (from rx_top)
     input  logic                          i_cfg_lms_en,       // 1: Adapt weights via LMS, 0: Hold weights
     input  logic signed [DATA_WIDTH-1:0]  i_error,            // Error e[n] from rx_top (Q4.12)
+    input  logic                          i_error_valid,      // Error belongs to the current RX output 
     input  logic signed [DATA_WIDTH-1:0]  i_learning_rate,    // Step-size mu (Q0.16)
 
     // Outputs
@@ -82,12 +83,12 @@ module rx_ffe #(
     // =========================================================================
     // 1. 3-Tap Input Delay Line: x[n], x[n-1], x[n-2]
     // =========================================================================
-    logic signed [DATA_WIDTH-1:0] x_reg [0:TAG_FFE-1];
+    logic signed [DATA_WIDTH-1:0] x_reg [0:(TAG_FFE+2)-1];
     logic                         valid_r;
 
     always_ff @(posedge i_clk or negedge i_rstn) begin
         if (!i_rstn) begin
-            for (int k = 0; k < TAG_FFE; k++) begin
+            for (int k = 0; k < TAG_FFE + 2; k++) begin
                 x_reg[k] <= '0;
             end
             valid_r <= 1'b0;
@@ -95,6 +96,8 @@ module rx_ffe #(
             x_reg[0] <= i_r_in;
             x_reg[1] <= x_reg[0];
             x_reg[2] <= x_reg[1];
+            x_reg[3] <= x_reg[2];
+            x_reg[4] <= x_reg[3];
             valid_r  <= 1'b1;
         end else begin
             valid_r  <= 1'b0;
@@ -116,30 +119,65 @@ module rx_ffe #(
     logic signed [2*DATA_WIDTH-1:0] prod_err_x [0:TAG_FFE-1];
     logic signed [3*DATA_WIDTH-1:0] prod_mu [0:TAG_FFE-1];
     logic signed [39:0] delta [0:TAG_FFE-1];
-    always_comb begin
-        for (int k = 0; k < TAG_FFE; k++) begin
-            prod_err_x[k] = $signed(i_error) * $signed(x_reg[k]);
-            prod_mu[k]    = $signed(i_learning_rate) * $signed(prod_err_x[k]);
-            delta[k]      = sat40(round_shift(64'($signed(prod_mu[k])), 16+2*DATA_FRAC-20));
-            w_reg[k]      = sat16(round_shift(64'($signed(w_acc[k])), 20-DATA_FRAC));
-        end
-    end
-    always_ff @(posedge i_clk or negedge i_rstn) begin
-        if (!i_rstn) begin
-            w_acc[0] <= sat40(64'($signed(i_cfg_ffe_w0)) <<< (20-DATA_FRAC));
-            w_acc[1] <= sat40(64'($signed(i_cfg_ffe_w1)) <<< (20-DATA_FRAC));
-            w_acc[2] <= sat40(64'($signed(i_cfg_ffe_w2)) <<< (20-DATA_FRAC));
-        end else if (i_cfg_lms_en && valid_r) begin
-            for (int k = 0; k < TAG_FFE; k++) begin
-                w_acc[k] <= sat40(64'($signed(w_acc[k])) + 64'($signed(delta[k])));
+    generate
+        if (PIPELINE) begin
+            always_comb begin
+                for (int k = 0; k < TAG_FFE; k++) begin
+                    prod_err_x[k] = $signed(i_error) * $signed(x_reg[k+2]);
+                    prod_mu[k]    = $signed(i_learning_rate) * $signed(prod_err_x[k]);
+                    delta[k]      = sat40(round_shift(64'($signed(prod_mu[k])), 16+2*DATA_FRAC-20));
+                    w_reg[k]      = sat16(round_shift(64'($signed(w_acc[k])), 20-DATA_FRAC));
+                end
             end
-        end else if (!i_cfg_lms_en) begin
-            // Hold or reload initial weights when adaptation is disabled
-            w_acc[0] <= sat40(64'($signed(i_cfg_ffe_w0)) <<< (20-DATA_FRAC));
-            w_acc[1] <= sat40(64'($signed(i_cfg_ffe_w1)) <<< (20-DATA_FRAC));
-            w_acc[2] <= sat40(64'($signed(i_cfg_ffe_w2)) <<< (20-DATA_FRAC));
+
+            always_ff @(posedge i_clk or negedge i_rstn) begin
+            if (!i_rstn) begin
+                w_acc[0] <= sat40(64'($signed(i_cfg_ffe_w0)) <<< (20-DATA_FRAC));
+                w_acc[1] <= sat40(64'($signed(i_cfg_ffe_w1)) <<< (20-DATA_FRAC));
+                w_acc[2] <= sat40(64'($signed(i_cfg_ffe_w2)) <<< (20-DATA_FRAC));
+            end else if (i_cfg_lms_en && i_error_valid) begin
+                for (int k = 0; k < TAG_FFE; k++) begin
+                    w_acc[k] <= sat40(64'($signed(w_acc[k])) + 64'($signed(delta[k])));
+                end
+            end else if (!i_cfg_lms_en) begin
+                // Hold or reload initial weights when adaptation is disabled
+                w_acc[0] <= sat40(64'($signed(i_cfg_ffe_w0)) <<< (20-DATA_FRAC));
+                w_acc[1] <= sat40(64'($signed(i_cfg_ffe_w1)) <<< (20-DATA_FRAC));
+                w_acc[2] <= sat40(64'($signed(i_cfg_ffe_w2)) <<< (20-DATA_FRAC));
+            end
+            end
         end
-    end
+        else begin
+            always_comb begin
+                for (int k = 0; k < TAG_FFE; k++) begin
+                    prod_err_x[k] = $signed(i_error) * $signed(x_reg[k]);
+                    prod_mu[k]    = $signed(i_learning_rate) * $signed(prod_err_x[k]);
+                    delta[k]      = sat40(round_shift(64'($signed(prod_mu[k])), 16+2*DATA_FRAC-20));
+                    w_reg[k]      = sat16(round_shift(64'($signed(w_acc[k])), 20-DATA_FRAC));
+                end
+            end
+
+            always_ff @(posedge i_clk or negedge i_rstn) begin
+            if (!i_rstn) begin
+                w_acc[0] <= sat40(64'($signed(i_cfg_ffe_w0)) <<< (20-DATA_FRAC));
+                w_acc[1] <= sat40(64'($signed(i_cfg_ffe_w1)) <<< (20-DATA_FRAC));
+                w_acc[2] <= sat40(64'($signed(i_cfg_ffe_w2)) <<< (20-DATA_FRAC));
+            end else if (i_cfg_lms_en && valid_r) begin
+                for (int k = 0; k < TAG_FFE; k++) begin
+                    w_acc[k] <= sat40(64'($signed(w_acc[k])) + 64'($signed(delta[k])));
+                end
+            end else if (!i_cfg_lms_en) begin
+                // Hold or reload initial weights when adaptation is disabled
+                w_acc[0] <= sat40(64'($signed(i_cfg_ffe_w0)) <<< (20-DATA_FRAC));
+                w_acc[1] <= sat40(64'($signed(i_cfg_ffe_w1)) <<< (20-DATA_FRAC));
+                w_acc[2] <= sat40(64'($signed(i_cfg_ffe_w2)) <<< (20-DATA_FRAC));
+            end
+            end
+
+        end
+    endgenerate
+
+   
 
     // =========================================================================
     // 4. FIR Filter Datapath: sum(w_k * x_k)
@@ -175,10 +213,10 @@ generate
             if (!i_rstn) begin
                 o_valid    <= 1'b0;
                 o_ffe_data <= '0;
-            end else begin
-                o_valid    <= valid_r;
+            end else if (valid_r) begin
                 o_ffe_data <= y_ffe;
             end
+            o_valid    <= valid_r;
         end
     end else begin : gen_comb
         assign o_valid    = valid_r;
