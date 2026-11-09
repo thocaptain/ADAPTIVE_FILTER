@@ -1,0 +1,19 @@
+[*] SNR monitor: values ending x1000 are millidecibels; compare after monitor_valid.
+[size] 1450 900
+@24
+snr_monitor.case_id
+snr_monitor.snr_requested_db
+snr_monitor.snr_active_db
+snr_monitor.sigma_q12
+snr_monitor.expected_snr_db
+snr_monitor.measured_snr_db
+snr_monitor.snr_error_db
+@28
+snr_monitor.monitor_valid
+snr_monitor.monitor_update
+@24
+snr_monitor.measured_signal_power_q24
+snr_monitor.measured_error_power_q24
+snr_monitor.clean_q12
+snr_monitor.noise_q12
+snr_monitor.channel_q12

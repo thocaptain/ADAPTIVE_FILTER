@@ -1,0 +1,20 @@
+[*] ISI=0, AWGN on. Select Signed Decimal in GTKWave for signed Q12 amplitudes.
+[timestart] 0
+[size] 1400 900
+TOP.channel_top.i_clk
+TOP.channel_top.i_rstn
+TOP.channel_top.i_valid
+TOP.channel_top.o_valid
+TOP.channel_top.i_cfg_isi_en
+@22
+TOP.channel_top.i_cfg_isi_coeff[15:0]
+TOP.channel_top.i_cfg_awgn_en
+@22
+TOP.channel_top.i_cfg_snr_db[15:0]
+TOP.channel_top.i_cfg_snr_load
+TOP.channel_top.o_cfg_snr_db[15:0]
+TOP.channel_top.o_cfg_sigma_q12[15:0]
+TOP.channel_top.i_tx_data[15:0]
+TOP.channel_top.o_clean_isi_data[15:0]
+TOP.channel_top.o_awgn_noise[15:0]
+TOP.channel_top.o_channel_data[15:0]
