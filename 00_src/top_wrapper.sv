@@ -88,7 +88,7 @@ module top_wrapper #(
         .i_stat_err_bits(stat_err_bits)
     );
 
-    top #(.DATA_WIDTH(16), .DATA_FRAC(12), .TRAIN_LEN(TRAIN_LEN), PIPELINE(PIPELINE)) core (
+    top #(.DATA_WIDTH(16), .DATA_FRAC(12), .TRAIN_LEN(TRAIN_LEN), .PIPELINE(PIPELINE)) core (
         .i_clk(S_AXI_ACLK), .i_rstn(cfg_dut_reset_n),
         .i_cfg_awgn_en(cfg_awgn_en),
         .i_cfg_lms_en(cfg_lms_en),
