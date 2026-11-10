@@ -10,12 +10,18 @@
 #include "xil_printf.h"
 
 #ifndef DUT_BASEADDR
-#if defined(XPAR_DUT_0_S_AXI_BASEADDR)
+#if defined(XPAR_ADAPTIVE_EQ_LMS_TRAI_0_S_AXI_BASEADDR)
+#define DUT_BASEADDR XPAR_ADAPTIVE_EQ_LMS_TRAI_0_S_AXI_BASEADDR
+#elif defined(XPAR_ADAPTIVE_EQ_LMS_TRAI_0_BASEADDR)
+#define DUT_BASEADDR XPAR_ADAPTIVE_EQ_LMS_TRAI_0_BASEADDR
+#elif defined(XPAR_DUT_0_S_AXI_BASEADDR)
 #define DUT_BASEADDR XPAR_DUT_0_S_AXI_BASEADDR
 #elif defined(XPAR_DUT_0_BASEADDR)
 #define DUT_BASEADDR XPAR_DUT_0_BASEADDR
 #else
-#define DUT_BASEADDR 0x44A10000U
+/* Vivado Address Editor: adaptive_eq_lms_trai_0/S_AXI,
+ * 64 KiB at 0x44A00000 through 0x44A0FFFF. */
+#define DUT_BASEADDR 0x44A00000U
 #define DUT_BASE_FALLBACK 1
 #endif
 #endif
@@ -212,12 +218,42 @@ static void print_row(const char *name, const char *expected,
 
 static unsigned run_training_phase(const char *name, uint32_t enables)
 {
+    const uint32_t before_learning = CTRL_TX | CTRL_ISI | CTRL_MON | enables;
     const uint32_t learning = CTRL_TX | CTRL_ISI | CTRL_LMS | enables;
     const uint32_t measuring = learning | CTRL_MON;
     struct phase_result discard;
     unsigned failures = 0;
     int config_ok;
 
+    /* Measure the same zero/unity seeds without adaptation first. Discard
+     * monitor acquisition, then require real errors in a fresh window. */
+    write_reg(REG_DUT_RESET_N, 0);
+    write_reg(REG_CONTROL, 0);
+    configure_fixed_weights();
+    write_reg(REG_DFE_B0, 0);
+    write_reg(REG_CONTROL, before_learning);
+    config_ok = read_reg(REG_CONTROL) == before_learning &&
+                read_reg(REG_FFE_W0) == 4096U &&
+                read_reg(REG_FFE_W1) == 0U &&
+                read_reg(REG_FFE_W2) == 0U &&
+                read_reg(REG_DFE_B0) == 0U &&
+                read_reg(REG_ISI_COEFF) == 2048U &&
+                read_reg(REG_NOISE_GAIN) == 0U;
+    write_reg(REG_DUT_RESET_N, 1);
+    config_ok = config_ok && read_reg(REG_DUT_RESET_N) == 1U;
+    wait_for_samples();
+    discard = snapshot();
+    (void)discard;
+    wait_for_samples();
+    {
+        const struct phase_result before = snapshot();
+        const int pass = config_ok && before.words >= SEQUENCE_MIN_WORDS &&
+                         before.error_bits > 0U;
+        print_row(name, ">0 pre-learn", &before, pass ? "PASS" : "FAIL");
+        if (!pass) ++failures;
+    }
+
+    /* Restart from the same seeds with LMS enabled before reset release. */
     write_reg(REG_DUT_RESET_N, 0);
     write_reg(REG_CONTROL, 0);
     configure_fixed_weights();
@@ -304,15 +340,17 @@ int main(void)
     xil_printf("mu=32/65536, AWGN=off; settle loops=%u, windows=%u, min words=%u\r\n",
                (unsigned)SEQUENCE_SETTLE_LOOPS, (unsigned)SEQUENCE_LMS_WINDOWS,
                (unsigned)SEQUENCE_MIN_WORDS);
-    xil_printf("Each repeated row is a fresh post-learning monitor window. LMS stays enabled.\r\n");
+    xil_printf("Each mode first snapshots errors with LMS off, then resets and learns from the same seeds.\r\n");
+    xil_printf("Require >0 errors before learning, then 0 errors in each fresh post-learning window.\r\n");
+    xil_printf("LMS stays enabled throughout post-learning measurements.\r\n");
     print_table_header();
     training_failures += run_training_phase("LMS FFE", CTRL_FFE);
     training_failures += run_training_phase("LMS DFE", CTRL_DFE);
     training_failures += run_training_phase("LMS FFE+DFE", CTRL_FFE | CTRL_DFE);
     print_table_border();
-    xil_printf("LMS SEQUENCES: %s | failing windows=%u\r\n",
+    xil_printf("LMS SEQUENCES: %s | failing checks=%u\r\n",
                training_failures == 0U ? "PASS" : "FAIL", training_failures);
-    xil_printf("PASS checks post-learning cyclic-monitor errors, not learned tap values.\r\n");
+    xil_printf("PASS checks pre/post-learning cyclic-monitor errors, not learned tap values.\r\n");
     xil_printf("AXI FFE/DFE registers read back seeds only; current taps/training status are not mapped.\r\n");
     xil_printf("The monitor counts binary-counter bit errors and self-aligns its phase.\r\n");
 
